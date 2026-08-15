@@ -70,6 +70,7 @@ except Exception:
 APP_TITLE = "NAVAIDS v7.0"
 CONFIG_FILE = "navaids_config.json"
 NOTAM_FILE = "navaids_notams.json"
+STATIONS_FILE = "navaids_stations.json"
 MAX_CHART_PTS = 120
 RECONNECT_SEC = 10
 MEM_EEPROM = "EEPROM"
@@ -1590,6 +1591,96 @@ class SimTrack:
         self.trail = self.trail[-RADAR_TRAIL_MAX:]
 
 
+_DEFAULT_STATIONS = [
+    {"station_id": "FAJS-VOR", "name": "Johannesburg VOR", "icao": "FAJS",
+     "navaid_type": "VOR", "host": "127.0.0.1", "port": 30003,
+     "poll_interval": 60, "last_status": "UNKNOWN"},
+    {"station_id": "FAWK-LOC", "name": "Waterkloof ILS LOC", "icao": "FAWK",
+     "navaid_type": "ILS-LOC", "host": "127.0.0.1", "port": 30004,
+     "poll_interval": 60, "last_status": "UNKNOWN"},
+    {"station_id": "FAVV-VOR", "name": "Makhado VOR", "icao": "FAVV",
+     "navaid_type": "VOR", "host": "127.0.0.1", "port": 30005,
+     "poll_interval": 60, "last_status": "UNKNOWN"},
+]
+
+
+class StationCard:
+    """
+    Represents one monitored NAVAID station in the dashboard.
+
+    Attributes
+    ----------
+    station_id  : str   - unique short ID, e.g. "FAJS-VOR"
+    name        : str   - display name, e.g. "Johannesburg VOR"
+    icao        : str   - ICAO airport code
+    navaid_type : str   - "VOR" | "ILS-LOC" | "ILS-GP" | "NDB" | "DME"
+    host        : str   - TCP host for polling
+    port        : int   - TCP port
+    poll_interval: int  - seconds between auto-polls (0 = manual only)
+    last_polled : str   - ISO timestamp of last successful poll
+    last_status : str   - "NORMAL" | "ALARM" | "OFFLINE" | "UNKNOWN"
+    alarm_count : int   - number of active alarms
+    params      : dict  - {param_key: value_str} last known values
+    notes       : str   - free-text notes
+    """
+
+    STATUS_COLOURS = {
+        "NORMAL":  "#28a745",
+        "ALARM":   "#dc3545",
+        "OFFLINE": "#6c757d",
+        "UNKNOWN": "#fd7e14",
+    }
+
+    def __init__(self, station_id="", name="", icao="", navaid_type="VOR",
+                 host="127.0.0.1", port=30003, poll_interval=60):
+        self.station_id    = station_id
+        self.name          = name
+        self.icao          = icao
+        self.navaid_type   = navaid_type
+        self.host          = host
+        self.port          = int(port)
+        self.poll_interval = int(poll_interval)
+        self.last_polled   = ""
+        self.last_status   = "UNKNOWN"
+        self.alarm_count   = 0
+        self.params        = {}
+        self.notes         = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "station_id":    self.station_id,
+            "name":          self.name,
+            "icao":          self.icao,
+            "navaid_type":   self.navaid_type,
+            "host":          self.host,
+            "port":          self.port,
+            "poll_interval": self.poll_interval,
+            "last_polled":   self.last_polled,
+            "last_status":   self.last_status,
+            "alarm_count":   self.alarm_count,
+            "params":        self.params,
+            "notes":         self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StationCard":
+        card = cls(
+            station_id    = d.get("station_id", ""),
+            name          = d.get("name", ""),
+            icao          = d.get("icao", ""),
+            navaid_type   = d.get("navaid_type", "VOR"),
+            host          = d.get("host", "127.0.0.1"),
+            port          = d.get("port", 30003),
+            poll_interval = d.get("poll_interval", 60),
+        )
+        card.last_polled  = d.get("last_polled", "")
+        card.last_status  = d.get("last_status", "UNKNOWN")
+        card.alarm_count  = d.get("alarm_count", 0)
+        card.params       = d.get("params", {})
+        card.notes        = d.get("notes", "")
+        return card
+
+
 class NAVAIDSApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -1648,8 +1739,17 @@ class NAVAIDSApp(tk.Tk):
         self.track_list = None
         self.radar_detail_var = tk.StringVar(value="No track selected")
         self.feed_stats_var = tk.StringVar(value="Messages: 0  Tracks: 0")
+        self._dash_stations      = []
+        self._dash_auto_running  = False
+        self._dash_interval_var  = tk.IntVar(value=60)
+        self._dash_card_widgets  = {}
+        self._dash_tree          = None
+        self._dash_canvas        = None
+        self._dash_cards_frame   = None
+        self._dash_summary_vars  = {}
         self._build_ui()
         self._load_config()
+        self._load_stations()
         self._apply_theme()
         self.after(1000, self._auto_scan_ports)
         self.after(2000, self._feed_stats_poller)
@@ -1697,6 +1797,7 @@ class NAVAIDSApp(tk.Tk):
             ("simulation", "Simulation", self._tab_simulation),
             ("inspection", "Inspection", self._tab_inspection),
             ("notam", "NOTAM", self._tab_notam),
+            ("dashboard", "Dashboard", self._tab_dashboard),
             ("radar", "Radar", self._tab_radar),
         ]:
             frame = ttk.Frame(self.notebook)
@@ -2269,6 +2370,530 @@ class NAVAIDSApp(tk.Tk):
             tree.column(col, width=110 if col != "Description" else 320)
         tree.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         self.notam_tree = tree
+
+    # ── Dashboard Tab ──────────────────────────────────────────────────────────
+
+    def _tab_dashboard(self, parent):
+        # Toolbar row 1
+        tb1 = ttk.Frame(parent)
+        tb1.pack(fill="x", padx=8, pady=(6, 2))
+        ttk.Button(tb1, text=u"\u2795 Add Station",
+                   command=self._dash_add_station).pack(side="left", padx=2)
+        ttk.Button(tb1, text=u"\u270F Edit Selected",
+                   command=self._dash_edit_station).pack(side="left", padx=2)
+        ttk.Button(tb1, text=u"\U0001f5d1 Remove",
+                   command=self._dash_remove_station).pack(side="left", padx=2)
+        ttk.Button(tb1, text=u"\U0001f504 Poll All",
+                   command=self._dash_poll_all).pack(side="left", padx=2)
+
+        # Toolbar row 2
+        tb2 = ttk.Frame(parent)
+        tb2.pack(fill="x", padx=8, pady=(0, 4))
+        ttk.Button(tb2, text=u"\u25b6 Start Auto-Poll",
+                   command=self._dash_start_auto).pack(side="left", padx=2)
+        ttk.Button(tb2, text=u"\u23f9 Stop",
+                   command=self._dash_stop_auto).pack(side="left", padx=2)
+        ttk.Label(tb2, text="Poll interval:").pack(side="left", padx=(8, 2))
+        ttk.Entry(tb2, textvariable=self._dash_interval_var, width=6).pack(side="left")
+        ttk.Label(tb2, text="s").pack(side="left")
+        ttk.Button(tb2, text=u"\U0001f4be Save",
+                   command=self._save_stations).pack(side="left", padx=8)
+
+        # Summary bar
+        summary_frame = ttk.Frame(parent)
+        summary_frame.pack(fill="x", padx=8, pady=(0, 4))
+        for status in ("NORMAL", "ALARM", "OFFLINE", "UNKNOWN"):
+            colour = StationCard.STATUS_COLOURS[status]
+            var = tk.StringVar(value=u"\u25cf 0 {0}".format(status))
+            self._dash_summary_vars[status] = var
+            lbl = tk.Label(summary_frame, textvariable=var,
+                           fg=colour, font=("TkDefaultFont", 9, "bold"),
+                           bg=self.theme.get("bg", "#1e1e1e"))
+            lbl.pack(side="left", padx=10)
+
+        # PanedWindow: card grid (top) + treeview (bottom)
+        pane = ttk.PanedWindow(parent, orient="vertical")
+        pane.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        # Card area with scrollable canvas
+        card_outer = ttk.Frame(pane)
+        pane.add(card_outer, weight=3)
+
+        self._dash_canvas = tk.Canvas(card_outer,
+                                      bg=self.theme.get("bg", "#1e1e1e"),
+                                      highlightthickness=0)
+        vsb = ttk.Scrollbar(card_outer, orient="vertical",
+                             command=self._dash_canvas.yview)
+        self._dash_canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        self._dash_canvas.pack(side="left", fill="both", expand=True)
+
+        self._dash_cards_frame = tk.Frame(self._dash_canvas,
+                                          bg=self.theme.get("bg", "#1e1e1e"))
+        self._dash_canvas_win = self._dash_canvas.create_window(
+            (0, 0), window=self._dash_cards_frame, anchor="nw")
+
+        def _on_frame_configure(event=None):
+            self._dash_canvas.configure(
+                scrollregion=self._dash_canvas.bbox("all"))
+
+        def _on_canvas_configure(event=None):
+            self._dash_canvas.itemconfig(self._dash_canvas_win,
+                                         width=event.width)
+            self._dash_rebuild_cards()
+
+        self._dash_cards_frame.bind("<Configure>", _on_frame_configure)
+        self._dash_canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Treeview (bottom)
+        tree_outer = ttk.Frame(pane)
+        pane.add(tree_outer, weight=1)
+
+        cols = ("Station ID", "Name", "Type", "Host", "Port",
+                "Status", "Alarms", "Last Polled", "Notes")
+        tree = ttk.Treeview(tree_outer, columns=cols, show="headings",
+                             height=6)
+        for col in cols:
+            tree.heading(col, text=col)
+            tree.column(col, width=100 if col not in ("Name", "Notes") else 160)
+        vsb2 = ttk.Scrollbar(tree_outer, orient="vertical",
+                              command=tree.yview)
+        tree.configure(yscrollcommand=vsb2.set)
+        vsb2.pack(side="right", fill="y")
+        tree.pack(fill="both", expand=True)
+        tree.bind("<Double-1>", self._dash_tree_double_click)
+        self._dash_tree = tree
+
+        # Populate from loaded stations
+        self._dash_rebuild_cards()
+        self._dash_refresh_summary()
+
+    def _dash_rebuild_cards(self):
+        """Destroy and recreate all card widgets in 3-column grid."""
+        if self._dash_cards_frame is None:
+            return
+        for w in self._dash_cards_frame.winfo_children():
+            w.destroy()
+        self._dash_card_widgets = {}
+
+        if not self._dash_stations:
+            lbl = tk.Label(self._dash_cards_frame,
+                           text="No stations configured \u2014 click \u2795 Add Station",
+                           fg="#aaaaaa",
+                           bg=self._dash_cards_frame.cget("bg"),
+                           font=("TkDefaultFont", 11))
+            lbl.grid(row=0, column=0, padx=20, pady=30)
+            return
+
+        for idx, card in enumerate(self._dash_stations):
+            row, col = divmod(idx, 3)
+            self._dash_build_card(card, row, col)
+
+        # Refresh treeview
+        self._dash_refresh_tree()
+
+    def _dash_build_card(self, card, row, col):
+        """Build a single station card widget."""
+        status = card.last_status
+        colour = StationCard.STATUS_COLOURS.get(status, "#fd7e14")
+        bg = self._dash_cards_frame.cget("bg")
+
+        frame = tk.Frame(self._dash_cards_frame,
+                         bg=bg,
+                         highlightbackground=colour,
+                         highlightthickness=3,
+                         bd=0, padx=6, pady=6)
+        frame.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+        self._dash_cards_frame.columnconfigure(col, weight=1)
+
+        widgets = {}
+
+        # Title
+        title_lbl = tk.Label(frame,
+                             text="{0} {1}".format(card.icao, card.navaid_type),
+                             font=("TkDefaultFont", 11, "bold"),
+                             bg=bg)
+        title_lbl.pack(anchor="w")
+        widgets["frame"] = frame
+        widgets["title"] = title_lbl
+
+        # Status row
+        status_row = tk.Frame(frame, bg=bg)
+        status_row.pack(anchor="w", fill="x")
+        dot_canvas = tk.Canvas(status_row, width=18, height=18, bg=bg,
+                               highlightthickness=0)
+        dot_canvas.create_oval(2, 2, 16, 16, fill=colour, outline="")
+        dot_canvas.pack(side="left")
+        status_lbl = tk.Label(status_row, text=status,
+                              fg=colour,
+                              font=("TkDefaultFont", 10, "bold"),
+                              bg=bg)
+        status_lbl.pack(side="left", padx=4)
+        widgets["dot_canvas"] = dot_canvas
+        widgets["status_lbl"] = status_lbl
+        widgets["dot_colour"] = colour
+
+        # Alarm badge
+        alarm_var = tk.StringVar(value="")
+        alarm_lbl = tk.Label(status_row, textvariable=alarm_var,
+                             bg="#dc3545", fg="white",
+                             font=("TkDefaultFont", 9, "bold"))
+        if card.alarm_count > 0:
+            alarm_var.set("({0} ALARMS)".format(card.alarm_count))
+            alarm_lbl.pack(side="left", padx=2)
+        widgets["alarm_var"] = alarm_var
+        widgets["alarm_lbl"] = alarm_lbl
+
+        # Key parameter labels
+        param_keys = self._dash_param_keys(card.navaid_type)
+        param_labels = {}
+        for pk in param_keys:
+            val = card.params.get(pk, "--")
+            row_f = tk.Frame(frame, bg=bg)
+            row_f.pack(anchor="w", fill="x")
+            tk.Label(row_f, text="{0}:".format(pk), width=14, anchor="w",
+                     bg=bg, font=("Courier", 9)).pack(side="left")
+            val_lbl = tk.Label(row_f, text=val, anchor="w",
+                               bg=bg, font=("Courier", 9))
+            val_lbl.pack(side="left")
+            param_labels[pk] = val_lbl
+        widgets["param_labels"] = param_labels
+
+        # Last polled
+        last_var = tk.StringVar(value="Last: {0}".format(
+            card.last_polled[-5:] if len(card.last_polled) >= 5 else card.last_polled or "--"))
+        last_lbl = tk.Label(frame, textvariable=last_var,
+                            bg=bg, font=("TkDefaultFont", 8), fg="#aaaaaa")
+        last_lbl.pack(anchor="w")
+        widgets["last_var"] = last_var
+
+        # Buttons
+        btn_row = tk.Frame(frame, bg=bg)
+        btn_row.pack(anchor="w", pady=(4, 0))
+        ttk.Button(btn_row, text="Poll",
+                   command=lambda c=card: self._dash_poll_station(c)).pack(side="left", padx=2)
+        ttk.Button(btn_row, text="Detail",
+                   command=lambda c=card: self._dash_go_detail(c)).pack(side="left", padx=2)
+
+        self._dash_card_widgets[card.station_id] = widgets
+
+    def _dash_param_keys(self, navaid_type):
+        if navaid_type == "VOR":
+            return ["tx_power", "vswr", "temp", "mon_status", "am_depth"]
+        elif navaid_type == "ILS-LOC":
+            return ["loc_ddm", "loc_width", "loc_power", "loc_sdm", "ils_mon"]
+        elif navaid_type == "ILS-GP":
+            return ["gp_ddm", "gp_angle", "gp_power", "gp_sdm", "ils_mon"]
+        else:
+            return ["status"]
+
+    def _dash_refresh_card(self, card):
+        """Update a single card widget after polling. Called from main thread."""
+        widgets = self._dash_card_widgets.get(card.station_id)
+        if widgets is None:
+            self._dash_rebuild_cards()
+            return
+        status = card.last_status
+        colour = StationCard.STATUS_COLOURS.get(status, "#fd7e14")
+
+        frame = widgets["frame"]
+        frame.config(highlightbackground=colour)
+
+        dot_canvas = widgets["dot_canvas"]
+        dot_canvas.delete("all")
+        dot_canvas.create_oval(2, 2, 16, 16, fill=colour, outline="")
+
+        widgets["status_lbl"].config(text=status, fg=colour)
+
+        alarm_var = widgets["alarm_var"]
+        alarm_lbl = widgets["alarm_lbl"]
+        if card.alarm_count > 0:
+            alarm_var.set("({0} ALARMS)".format(card.alarm_count))
+            alarm_lbl.pack(side="left", padx=2)
+        else:
+            alarm_var.set("")
+            alarm_lbl.pack_forget()
+
+        for pk, lbl in widgets["param_labels"].items():
+            lbl.config(text=card.params.get(pk, "--"))
+
+        last_str = card.last_polled[-5:] if len(card.last_polled) >= 5 else card.last_polled or "--"
+        widgets["last_var"].set("Last: {0}".format(last_str))
+
+        self._dash_refresh_tree()
+        self._dash_refresh_summary()
+
+    def _dash_refresh_summary(self):
+        counts = {"NORMAL": 0, "ALARM": 0, "OFFLINE": 0, "UNKNOWN": 0}
+        for card in self._dash_stations:
+            key = card.last_status if card.last_status in counts else "UNKNOWN"
+            counts[key] += 1
+        for status, var in self._dash_summary_vars.items():
+            var.set(u"\u25cf {0} {1}".format(counts.get(status, 0), status))
+
+    def _dash_refresh_tree(self):
+        if self._dash_tree is None:
+            return
+        tree = self._dash_tree
+        existing = {str(tree.item(iid)["values"][0]): iid
+                    for iid in tree.get_children()}
+        for card in self._dash_stations:
+            vals = (card.station_id, card.name, card.navaid_type,
+                    card.host, card.port, card.last_status,
+                    card.alarm_count, card.last_polled, card.notes)
+            if card.station_id in existing:
+                tree.item(existing[card.station_id], values=vals)
+            else:
+                tree.insert("", "end", values=vals)
+        # Remove rows for deleted stations
+        current_ids = {c.station_id for c in self._dash_stations}
+        for sid, iid in existing.items():
+            if sid not in current_ids:
+                tree.delete(iid)
+
+    def _dash_tree_double_click(self, event=None):
+        if self._dash_tree is None:
+            return
+        sel = self._dash_tree.selection()
+        if not sel:
+            return
+        vals = self._dash_tree.item(sel[0])["values"]
+        if not vals:
+            return
+        sid = str(vals[0])
+        # Scroll card grid to that station
+        for idx, card in enumerate(self._dash_stations):
+            if card.station_id == sid:
+                row = idx // 3
+                total_rows = max(1, (len(self._dash_stations) + 2) // 3)
+                frac = row / total_rows
+                self._dash_canvas.yview_moveto(frac)
+                break
+
+    def _dash_go_detail(self, card):
+        """Switch to VOR or ILS tab for this station."""
+        if card.navaid_type == "VOR":
+            self.notebook.select(self.tabs["vor"])
+        elif card.navaid_type in ("ILS-LOC", "ILS-GP"):
+            self.notebook.select(self.tabs["ils"])
+
+    def _dash_add_station(self):
+        self._dash_station_dialog(None)
+
+    def _dash_edit_station(self):
+        sel = self._dash_tree.selection() if self._dash_tree else []
+        if not sel:
+            messagebox.showinfo("Edit Station", "Select a station in the list first.")
+            return
+        vals = self._dash_tree.item(sel[0])["values"]
+        sid = str(vals[0])
+        card = next((c for c in self._dash_stations if c.station_id == sid), None)
+        if card:
+            self._dash_station_dialog(card)
+
+    def _dash_remove_station(self):
+        if not self._dash_tree:
+            return
+        sel = self._dash_tree.selection()
+        if not sel:
+            messagebox.showinfo("Remove", "Select a station first.")
+            return
+        vals = self._dash_tree.item(sel[0])["values"]
+        sid = str(vals[0])
+        self._dash_stations = [c for c in self._dash_stations if c.station_id != sid]
+        self._dash_rebuild_cards()
+        self._dash_refresh_summary()
+        self._save_stations()
+
+    def _dash_station_dialog(self, existing_card):
+        dlg = tk.Toplevel(self)
+        dlg.title("Station Details")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        fields = [
+            ("Station ID:",    "station_id",    tk.StringVar(value=existing_card.station_id if existing_card else "")),
+            ("Display Name:",  "name",          tk.StringVar(value=existing_card.name if existing_card else "")),
+            ("ICAO Code:",     "icao",          tk.StringVar(value=existing_card.icao if existing_card else "")),
+            ("TCP Host:",      "host",          tk.StringVar(value=existing_card.host if existing_card else "127.0.0.1")),
+            ("TCP Port:",      "port",          tk.StringVar(value=str(existing_card.port) if existing_card else "30003")),
+            ("Poll Interval:", "poll_interval", tk.StringVar(value=str(existing_card.poll_interval) if existing_card else "60")),
+            ("Notes:",         "notes",         tk.StringVar(value=existing_card.notes if existing_card else "")),
+        ]
+        type_var = tk.StringVar(value=existing_card.navaid_type if existing_card else "VOR")
+
+        for i, (label, _, var) in enumerate(fields):
+            ttk.Label(dlg, text=label).grid(row=i, column=0, sticky="w", padx=8, pady=4)
+            if label == "Poll Interval:":
+                row_f = ttk.Frame(dlg)
+                row_f.grid(row=i, column=1, sticky="w", padx=8)
+                ttk.Entry(row_f, textvariable=var, width=20).pack(side="left")
+                ttk.Label(row_f, text="seconds (0=manual)").pack(side="left", padx=4)
+            else:
+                ttk.Entry(dlg, textvariable=var, width=24).grid(row=i, column=1, sticky="w", padx=8)
+
+        type_row = len(fields)
+        ttk.Label(dlg, text="NAVAID Type:").grid(row=type_row, column=0, sticky="w", padx=8, pady=4)
+        type_cb = ttk.Combobox(dlg, textvariable=type_var,
+                                values=["VOR", "ILS-LOC", "ILS-GP", "NDB", "DME"],
+                                state="readonly", width=12)
+        type_cb.grid(row=type_row, column=1, sticky="w", padx=8)
+
+        def _save():
+            fdict = {key: var.get() for _, key, var in fields}
+            fdict["navaid_type"] = type_var.get()
+            new_card = StationCard(
+                station_id    = fdict["station_id"].strip(),
+                name          = fdict["name"].strip(),
+                icao          = fdict["icao"].strip().upper(),
+                navaid_type   = fdict["navaid_type"],
+                host          = fdict["host"].strip(),
+                port          = int(fdict["port"]) if fdict["port"].isdigit() else 30003,
+                poll_interval = int(fdict["poll_interval"]) if fdict["poll_interval"].isdigit() else 60,
+            )
+            new_card.notes = fdict["notes"].strip()
+            if not new_card.station_id:
+                messagebox.showerror("Error", "Station ID is required.", parent=dlg)
+                return
+            if existing_card:
+                # preserve runtime state
+                new_card.last_polled  = existing_card.last_polled
+                new_card.last_status  = existing_card.last_status
+                new_card.alarm_count  = existing_card.alarm_count
+                new_card.params       = existing_card.params
+                idx = next((i for i, c in enumerate(self._dash_stations)
+                            if c.station_id == existing_card.station_id), None)
+                if idx is not None:
+                    self._dash_stations[idx] = new_card
+                else:
+                    self._dash_stations.append(new_card)
+            else:
+                # check duplicate
+                if any(c.station_id == new_card.station_id for c in self._dash_stations):
+                    messagebox.showerror("Error",
+                                         "Station ID already exists.", parent=dlg)
+                    return
+                self._dash_stations.append(new_card)
+            dlg.destroy()
+            self._dash_rebuild_cards()
+            self._dash_refresh_summary()
+            self._save_stations()
+
+        btn_row_idx = type_row + 1
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.grid(row=btn_row_idx, column=0, columnspan=2, pady=8)
+        ttk.Button(btn_frame, text=u"\u2714 Save", command=_save).pack(side="left", padx=8)
+        ttk.Button(btn_frame, text=u"\u2716 Cancel", command=dlg.destroy).pack(side="left", padx=8)
+
+    def _dash_poll_station(self, card: StationCard):
+        """Poll one station in a background thread and update its card."""
+        def _worker():
+            try:
+                comm = CommManager(host=card.host, tcp_port=card.port)
+                connected = False
+                try:
+                    comm.connect_tcp(card.host, card.port)
+                    connected = True
+                except Exception:
+                    # For loopback host fall back to simulation; for remote hosts mark offline
+                    connected = False
+                    if card.host != "127.0.0.1":
+                        raise
+
+                params = {}
+                alarm_count = 0
+                if card.navaid_type == "VOR":
+                    for cmd_key in ["tx_power", "vswr", "temp", "mon_status",
+                                    "am_depth", "alarm_count"]:
+                        cmd = THALES_CMDS.get(cmd_key, cmd_key)
+                        if connected:
+                            val = comm.send(cmd)
+                        else:
+                            val = comm._simulate_device_response(cmd)
+                        params[cmd_key] = val
+                        if cmd_key == "alarm_count":
+                            try:
+                                alarm_count = int(val)
+                            except Exception:
+                                pass
+                    status = "ALARM" if alarm_count > 0 else "NORMAL"
+                elif card.navaid_type in ("ILS-LOC", "ILS-GP"):
+                    for cmd_key in ["loc_ddm", "loc_width", "loc_power",
+                                    "loc_sdm", "ils_mon", "ils_alarm"]:
+                        cmd = NORMARC_CMDS.get(cmd_key, cmd_key)
+                        if connected:
+                            val = comm.send(cmd)
+                        else:
+                            val = comm._simulate_device_response(cmd)
+                        params[cmd_key] = val
+                    alm = params.get("ils_alarm", "NONE")
+                    status = "ALARM" if alm.upper() not in ("NONE", "OK", "") else "NORMAL"
+                    if status == "ALARM":
+                        alarm_count = 1
+                else:
+                    cmd = "STATUS?"
+                    if connected:
+                        val = comm.send(cmd)
+                    else:
+                        val = comm._simulate_device_response(cmd)
+                    params["status"] = val
+                    status = "NORMAL"
+                if connected:
+                    comm.disconnect()
+                card.params      = params
+                card.last_status = status
+                card.alarm_count = alarm_count
+                card.last_polled = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as exc:
+                card.last_status = "OFFLINE"
+                card.params      = {}
+                card.last_polled = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self._log("[DASH] poll failed {0}: {1}".format(card.station_id, exc))
+            self.after(0, lambda: self._dash_refresh_card(card))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _dash_poll_all(self):
+        for card in self._dash_stations:
+            self._dash_poll_station(card)
+
+    def _dash_start_auto(self):
+        self._dash_auto_running = True
+        self._dash_auto_poll()
+        self._log("[DASH] auto-poll started")
+
+    def _dash_stop_auto(self):
+        self._dash_auto_running = False
+        self._log("[DASH] auto-poll stopped")
+
+    def _dash_auto_poll(self):
+        if not getattr(self, "_dash_auto_running", False):
+            return
+        self._dash_poll_all()
+        interval_ms = max(5000, self._dash_interval_var.get() * 1000)
+        self.after(int(interval_ms), self._dash_auto_poll)
+
+    def _load_stations(self):
+        if os.path.exists(STATIONS_FILE):
+            try:
+                with open(STATIONS_FILE, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                self._dash_stations = [StationCard.from_dict(d) for d in data]
+            except Exception as exc:
+                self._log("[DASH] load stations failed: {0}".format(exc))
+                self._dash_stations = []
+        else:
+            self._dash_stations = [StationCard.from_dict(d) for d in _DEFAULT_STATIONS]
+        # Rebuild card grid now that stations are loaded
+        self.after(0, self._dash_rebuild_cards)
+        self.after(0, self._dash_refresh_summary)
+
+    def _save_stations(self):
+        try:
+            with open(STATIONS_FILE, "w", encoding="utf-8") as fh:
+                json.dump([c.to_dict() for c in self._dash_stations], fh, indent=2)
+            self._log("[DASH] stations saved ({0})".format(len(self._dash_stations)))
+        except Exception as exc:
+            self._log("[DASH] save stations failed: {0}".format(exc))
 
     def _tab_radar(self, parent):
         top = ttk.Frame(parent)
