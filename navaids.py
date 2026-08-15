@@ -153,6 +153,14 @@ NORMARC_CMDS = {
     "alarms": "ALARMS?",
     "reset": "RST",
     "save": "STORE",
+    "course_width": "SCRSW?",
+    "ddm": "SDDM?",
+    "course_pos": "SCPOS?",
+    "rf_power": "SPWR?",
+    "sbo_level": "SSBO?",
+    "csb_level": "SCSB?",
+    "mon_ddm_alarm": "SMALM?",
+    "mon_cw_alarm": "SMCWA?",
 }
 
 ALCATEL_CMDS = {
@@ -417,6 +425,22 @@ class CommManager:
             return "-14"
         if "ANT_CURRENT" in cmd:
             return "3.1"
+        if cmd == "SCRSW?":
+            return "3.8"
+        if cmd == "SDDM?":
+            return "0.155"
+        if cmd == "SCPOS?":
+            return "0"
+        if cmd == "SPWR?":
+            return "20"
+        if cmd == "SSBO?":
+            return "-12"
+        if cmd == "SCSB?":
+            return "-6"
+        if cmd == "SMALM?":
+            return "0.035"
+        if cmd == "SMCWA?":
+            return "1.9"
         if cmd.startswith("UP_") or cmd.startswith("DN_"):
             return "ACK"
         if cmd.startswith("TEST"):
@@ -1613,12 +1637,304 @@ class NAVAIDSApp(tk.Tk):
         self.runway_trees["saaf"] = self._build_runway_tree(parent, SAAF_RUNWAYS)
 
     def _tab_calibration(self, parent):
-        frm = ttk.Frame(parent)
-        frm.pack(fill="both", expand=True, padx=8, pady=8)
-        ttk.Label(frm, text="Calibration scratchpad").pack(anchor="w")
-        self.cal_text = ScrolledText(frm, wrap="word", height=16)
-        self.cal_text.pack(fill="both", expand=True)
+        outer = ttk.Frame(parent)
+        outer.pack(fill="both", expand=True, padx=8, pady=8)
+
+        sub_nb = ttk.Notebook(outer)
+        sub_nb.pack(fill="both", expand=True)
+
+        vor_frm = ttk.Frame(sub_nb)
+        loc_frm = ttk.Frame(sub_nb)
+        sub_nb.add(vor_frm, text="Thales VOR")
+        sub_nb.add(loc_frm, text="Normarc Localizer")
+
+        self._build_vor_cal_tab(vor_frm)
+        self._build_loc_cal_tab(loc_frm)
+
+        # Notes / Scratchpad
+        ttk.Label(outer, text="Notes / Scratchpad").pack(anchor="w", pady=(8, 0))
+        self.cal_text = ScrolledText(outer, wrap="word", height=6)
+        self.cal_text.pack(fill="both", expand=False)
         self.cal_text.insert("1.0", "Use this page for calibration notes, offsets, and acceptance criteria.\n")
+
+    # ------------------------------------------------------------------
+    # Thales VOR calibration tab
+    # ------------------------------------------------------------------
+    def _build_vor_cal_tab(self, parent):
+        self.vor_cal_vars = {}
+
+        canvas = tk.Canvas(parent, borderwidth=0)
+        vbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        vbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = ttk.Frame(canvas)
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _resize(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfig(win_id, width=event.width)
+
+        inner.bind("<Configure>", _resize)
+        canvas.bind("<Configure>", _resize)
+
+        def _add_row(frm, row, label, key, default="", unit=""):
+            ttk.Label(frm, text=label + ("  [" + unit + "]" if unit else "")).grid(row=row, column=0, sticky="w", padx=4, pady=2)
+            var = tk.StringVar(value=default)
+            self.vor_cal_vars[key] = var
+            ttk.Entry(frm, textvariable=var, width=18).grid(row=row, column=1, sticky="w", padx=4, pady=2)
+
+        # Identification
+        id_frm = ttk.LabelFrame(inner, text="Identification")
+        id_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(id_frm, 0, "Site ID", "SITE_ID")
+        _add_row(id_frm, 1, "Ident Code", "IDENT_CODE")
+        _add_row(id_frm, 2, "Ident Rate", "IDENT_RATE", unit="WPM")
+        _add_row(id_frm, 3, "Ident Level", "IDENT_LEVEL", unit="dB")
+
+        # Frequency
+        freq_frm = ttk.LabelFrame(inner, text="Frequency")
+        freq_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(freq_frm, 0, "TX Frequency", "TX_FREQ", unit="MHz")
+        _add_row(freq_frm, 1, "Subcarrier Frequency", "SUBCARRIER", default="9960", unit="Hz")
+
+        # Signal Levels
+        sig_frm = ttk.LabelFrame(inner, text="Signal Levels")
+        sig_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(sig_frm, 0, "AM Depth", "AM_DEPTH", default="30", unit="%  (nom 30% ±2%)")
+        _add_row(sig_frm, 1, "Reference Phase", "REF_PHASE", default="0", unit="deg  (nom 0° ±1°)")
+        _add_row(sig_frm, 2, "Variable Phase", "VAR_PHASE", unit="deg")
+        _add_row(sig_frm, 3, "TX Power", "TX_POWER", unit="W")
+
+        # Monitor
+        mon_frm = ttk.LabelFrame(inner, text="Monitor")
+        mon_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(mon_frm, 0, "Monitor Bearing", "MON_BRG", unit="deg")
+        _add_row(mon_frm, 1, "Monitor Alarm Threshold 1", "MON_ALARM1")
+        _add_row(mon_frm, 2, "Monitor Alarm Threshold 2", "MON_ALARM2")
+
+        # Acceptance Criteria
+        crit_frm = ttk.LabelFrame(inner, text="Acceptance Criteria")
+        crit_frm.pack(fill="x", padx=6, pady=4)
+        crit_text = ScrolledText(crit_frm, wrap="word", height=8, state="normal")
+        crit_text.pack(fill="x", padx=4, pady=4)
+        crit_text.insert("1.0", (
+            "Thales TRC 6000 DVOR Acceptance Criteria:\n"
+            "- TX Frequency: \u00b10.005 MHz of nominal\n"
+            "- AM Depth: 30% \u00b12%\n"
+            "- Subcarrier: 9960 Hz \u00b11 Hz\n"
+            "- Reference Phase: 0\u00b0 \u00b11\u00b0\n"
+            "- VSWR: < 1.5:1\n"
+            "- Ident Level: per ICAO Annex 10\n"
+            "- Monitor Bearing: \u00b12\u00b0 of radial\n"
+        ))
+        crit_text.configure(state="disabled")
+
+        # Buttons
+        btn_frm = ttk.Frame(inner)
+        btn_frm.pack(fill="x", padx=6, pady=6)
+        ttk.Button(btn_frm, text="Send All to Device",
+                   command=self._vor_cal_send_all).pack(side="left", padx=2)
+        ttk.Button(btn_frm, text="Query from Device",
+                   command=self._vor_cal_query).pack(side="left", padx=2)
+        ttk.Button(btn_frm, text="Save Calibration Report",
+                   command=self._vor_cal_save_report).pack(side="left", padx=2)
+        ttk.Button(btn_frm, text="Reset to Defaults",
+                   command=self._vor_cal_reset).pack(side="left", padx=2)
+
+    def _vor_cal_send_all(self):
+        def _run():
+            for param, var in self.vor_cal_vars.items():
+                val = var.get().strip()
+                if val:
+                    reply = self.comm.send("SET {0} {1}".format(param, val))
+                    self._log("[VOR CAL] SET {0} {1} → {2}".format(param, val, reply))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _vor_cal_query(self):
+        param_to_key = {
+            "SITE_ID": "site_id", "IDENT_CODE": "ident_code",
+            "IDENT_RATE": "ident_rate", "IDENT_LEVEL": "ident_level",
+            "TX_FREQ": "tx_freq", "SUBCARRIER": "subcarrier",
+            "AM_DEPTH": "am_depth", "REF_PHASE": "ref_phase",
+            "VAR_PHASE": "var_phase", "TX_POWER": "tx_power",
+            "MON_BRG": "mon_brg", "MON_ALARM1": "mon_alarm1", "MON_ALARM2": "mon_alarm2",
+        }
+
+        def _run():
+            for param, cmd_key in param_to_key.items():
+                cmd = THALES_CMDS.get(cmd_key, "RPT {0}?".format(param))
+                reply = self.comm.send(cmd)
+                self._log("[VOR CAL] {0} → {1}".format(param, reply))
+                if param in self.vor_cal_vars:
+                    self.vor_cal_vars[param].set(reply)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _vor_cal_save_report(self):
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt", filetypes=[("Text", "*.txt")],
+            title="Save Thales VOR Calibration Report")
+        if not path:
+            return
+        lines = ["Thales TRC 6000 DVOR Calibration Report", "=" * 42, ""]
+        for param, var in self.vor_cal_vars.items():
+            lines.append("{0}: {1}".format(param, var.get()))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        self._log("[VOR CAL] Report saved {0}".format(path))
+
+    def _vor_cal_reset(self):
+        defaults = {
+            "SITE_ID": "", "IDENT_CODE": "", "IDENT_RATE": "", "IDENT_LEVEL": "",
+            "TX_FREQ": "", "SUBCARRIER": "9960",
+            "AM_DEPTH": "30", "REF_PHASE": "0", "VAR_PHASE": "", "TX_POWER": "",
+            "MON_BRG": "", "MON_ALARM1": "", "MON_ALARM2": "",
+        }
+        for param, val in defaults.items():
+            if param in self.vor_cal_vars:
+                self.vor_cal_vars[param].set(val)
+
+    # ------------------------------------------------------------------
+    # Normarc Localizer calibration tab
+    # ------------------------------------------------------------------
+    def _build_loc_cal_tab(self, parent):
+        self.loc_cal_vars = {}
+
+        canvas = tk.Canvas(parent, borderwidth=0)
+        vbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        vbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = ttk.Frame(canvas)
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _resize(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfig(win_id, width=event.width)
+
+        inner.bind("<Configure>", _resize)
+        canvas.bind("<Configure>", _resize)
+
+        def _add_row(frm, row, label, key, default="", unit=""):
+            ttk.Label(frm, text=label + ("  [" + unit + "]" if unit else "")).grid(row=row, column=0, sticky="w", padx=4, pady=2)
+            var = tk.StringVar(value=default)
+            self.loc_cal_vars[key] = var
+            ttk.Entry(frm, textvariable=var, width=18).grid(row=row, column=1, sticky="w", padx=4, pady=2)
+
+        # Identification
+        id_frm = ttk.LabelFrame(inner, text="Identification")
+        id_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(id_frm, 0, "Station ID", "SIDENT_ID")
+        _add_row(id_frm, 1, "Ident Code", "SIDENT_CODE")
+
+        # Frequency
+        freq_frm = ttk.LabelFrame(inner, text="Frequency")
+        freq_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(freq_frm, 0, "TX Frequency", "STFREQ", unit="MHz")
+        _add_row(freq_frm, 1, "Course Width", "SCRSW", default="3.8", unit="deg  (nom 3–6°)")
+
+        # Signal Levels
+        sig_frm = ttk.LabelFrame(inner, text="Signal Levels")
+        sig_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(sig_frm, 0, "DDM at Threshold", "SDDM", default="0.155", unit="DDM  (nom 0.155)")
+        _add_row(sig_frm, 1, "Course Line Position", "SCPOS", default="0", unit="\u00b5A  (nom 0)")
+        _add_row(sig_frm, 2, "RF Power", "SPWR", unit="W")
+        _add_row(sig_frm, 3, "SBO Level", "SSBO", unit="dB")
+        _add_row(sig_frm, 4, "CSB Level", "SCSB", unit="dB")
+
+        # Monitor
+        mon_frm = ttk.LabelFrame(inner, text="Monitor")
+        mon_frm.pack(fill="x", padx=6, pady=4)
+        _add_row(mon_frm, 0, "Monitor DDM Alarm", "SMALM", default="0.035", unit="DDM")
+        _add_row(mon_frm, 1, "Monitor Course Width Alarm", "SMCWA", unit="")
+
+        # Acceptance Criteria
+        crit_frm = ttk.LabelFrame(inner, text="Acceptance Criteria")
+        crit_frm.pack(fill="x", padx=6, pady=4)
+        crit_text = ScrolledText(crit_frm, wrap="word", height=8, state="normal")
+        crit_text.pack(fill="x", padx=4, pady=4)
+        crit_text.insert("1.0", (
+            "Normarc ILS Localizer Acceptance Criteria:\n"
+            "- Course Line Position: 0 \u00b5A \u00b117 \u00b5A\n"
+            "- Full Scale DDM: 0.155 DDM \u00b10.010 DDM\n"
+            "- Course Width: 3\u00b0 to 6\u00b0 (nominal per site)\n"
+            "- RF Power: per site plan\n"
+            "- Monitor DDM Alarm: 0.035 DDM change\n"
+            "- Monitor Course Width Alarm: 50% of course width change\n"
+            "- Ident: per ICAO Annex 10\n"
+        ))
+        crit_text.configure(state="disabled")
+
+        # Buttons
+        btn_frm = ttk.Frame(inner)
+        btn_frm.pack(fill="x", padx=6, pady=6)
+        ttk.Button(btn_frm, text="Send All to Device",
+                   command=self._loc_cal_send_all).pack(side="left", padx=2)
+        ttk.Button(btn_frm, text="Query from Device",
+                   command=self._loc_cal_query).pack(side="left", padx=2)
+        ttk.Button(btn_frm, text="Save Calibration Report",
+                   command=self._loc_cal_save_report).pack(side="left", padx=2)
+        ttk.Button(btn_frm, text="Reset to Defaults",
+                   command=self._loc_cal_reset).pack(side="left", padx=2)
+
+    def _loc_cal_send_all(self):
+        cmd_map = {
+            "SIDENT_ID": "SIDENT", "SIDENT_CODE": "SIDENT",
+            "STFREQ": "STFREQ", "SCRSW": "SCRSW",
+            "SDDM": "SDDM", "SCPOS": "SCPOS", "SPWR": "SPWR",
+            "SSBO": "SSBO", "SCSB": "SCSB",
+            "SMALM": "SMALM", "SMCWA": "SMCWA",
+        }
+
+        def _run():
+            for param, cmd_prefix in cmd_map.items():
+                val = self.loc_cal_vars[param].get().strip()
+                if val:
+                    reply = self.comm.send("{0} {1}".format(cmd_prefix, val))
+                    self._log("[LOC CAL] {0} {1} → {2}".format(cmd_prefix, val, reply))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _loc_cal_query(self):
+        param_to_cmd = {
+            "STFREQ": "TFREQ?", "SCRSW": "SCRSW?",
+            "SDDM": "SDDM?", "SCPOS": "SCPOS?", "SPWR": "SPWR?",
+            "SSBO": "SSBO?", "SCSB": "SCSB?",
+            "SMALM": "SMALM?", "SMCWA": "SMCWA?",
+        }
+
+        def _run():
+            for param, cmd in param_to_cmd.items():
+                reply = self.comm.send(cmd)
+                self._log("[LOC CAL] {0} → {1}".format(cmd, reply))
+                if param in self.loc_cal_vars:
+                    self.loc_cal_vars[param].set(reply)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _loc_cal_save_report(self):
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt", filetypes=[("Text", "*.txt")],
+            title="Save Normarc Localizer Calibration Report")
+        if not path:
+            return
+        lines = ["Normarc ILS Localizer Calibration Report", "=" * 42, ""]
+        for param, var in self.loc_cal_vars.items():
+            lines.append("{0}: {1}".format(param, var.get()))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        self._log("[LOC CAL] Report saved {0}".format(path))
+
+    def _loc_cal_reset(self):
+        defaults = {
+            "SIDENT_ID": "", "SIDENT_CODE": "",
+            "STFREQ": "", "SCRSW": "3.8",
+            "SDDM": "0.155", "SCPOS": "0", "SPWR": "", "SSBO": "", "SCSB": "",
+            "SMALM": "0.035", "SMCWA": "",
+        }
+        for param, val in defaults.items():
+            if param in self.loc_cal_vars:
+                self.loc_cal_vars[param].set(val)
 
     def _tab_lda_memory(self, parent):
         top = ttk.Frame(parent)
