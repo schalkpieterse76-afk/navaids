@@ -46,7 +46,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     RL_OK = True
 except Exception:
     A4 = None
@@ -59,6 +59,7 @@ except Exception:
     Spacer = None
     HRFlowable = None
     KeepTogether = None
+    PageBreak = None
     getSampleStyleSheet = None
     ParagraphStyle = None
     TA_CENTER = 1
@@ -919,6 +920,360 @@ class ThalesVORReport:
             for section, label, cmd_key, unit, pname in VOR_REPORT_FIELDS:
                 value = data.get(cmd_key, "")
                 writer.writerow([section, label, cmd_key, value, unit, cls._status(value), pname])
+
+
+class NormarcILSReport:
+    """
+    Generates a formatted A4 PDF Flight Inspection / Maintenance Report
+    for a Normarc ILS installation covering Localizer and Glidepath.
+    """
+
+    MODEL         = "Normarc ILS"
+    COMPANY       = "Normarc / Indra"
+    HEADER_COLOUR = "#003366"
+    ALT_ROW       = "#EEF3F8"
+    ALARM_BG      = "#FFE2E2"
+    OK_BG         = "#E8F5E9"
+    HEADER_TEXT   = "#FFFFFF"
+
+    ICAO_LOC = {
+        "Course Alignment":  "±0.5°",
+        "DDM at Course":     "±0.010 DDM",
+        "Course Width":      "3° – 6°",
+        "SDM":               "36% – 44%",
+        "90Hz AM Depth":     "17% – 23%",
+        "150Hz AM Depth":    "17% – 23%",
+        "Ident Morse":       "3 letters + *",
+    }
+    ICAO_GP = {
+        "Glide Angle":       "Nominal ±0.075θ",
+        "DDM at Glide Path": "±0.025 DDM",
+        "Sector Width":      "0.10θ – 0.14θ",
+        "SDM":               "36% – 44%",
+        "90Hz AM Depth":     "17% – 23%",
+        "150Hz AM Depth":    "17% – 23%",
+    }
+
+    @classmethod
+    def _check_status(cls, param, value, system):
+        """Return 'OK' or 'OUT' based on param name and numeric value."""
+        try:
+            v = float(str(value).replace(",", ".").strip())
+        except (ValueError, AttributeError):
+            return "—"
+        checks = {
+            "DDM":        lambda x: abs(x) <= 0.015 if system == "LOC" else abs(x) <= 0.025,
+            "90Hz AM":    lambda x: 17.0 <= x <= 23.0,
+            "150Hz AM":   lambda x: 17.0 <= x <= 23.0,
+            "SDM":        lambda x: 36.0 <= x <= 44.0,
+            "Power":      lambda x: x >= 50.0,
+            "RF Monitor": lambda x: x >= 50.0,
+        }
+        for key, fn in checks.items():
+            if key.lower() in param.lower():
+                return "OK" if fn(v) else "OUT"
+        return "—"
+
+    @classmethod
+    def generate(cls, path, loc_data, gp_data,
+                 station="", runway="",
+                 technician="", notes="",
+                 report_ref=""):
+        """Build the 4-page ILS Flight Inspection PDF."""
+        if not RL_OK:
+            raise RuntimeError("reportlab not available")
+
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "NormarcTitle",
+            parent=styles["Title"],
+            alignment=TA_CENTER,
+            textColor=colors.HexColor(cls.HEADER_COLOUR),
+            fontSize=22,
+            leading=26,
+        )
+        heading_style = ParagraphStyle(
+            "NormarcHeading",
+            parent=styles["Heading1"],
+            alignment=TA_CENTER,
+            textColor=colors.HexColor(cls.HEADER_COLOUR),
+            fontSize=14,
+            leading=18,
+        )
+        section_style = ParagraphStyle(
+            "NormarcSection",
+            parent=styles["Heading2"],
+            textColor=colors.HexColor(cls.HEADER_COLOUR),
+            fontSize=12,
+            leading=16,
+        )
+        normal = styles["BodyText"]
+        hdr_colour = colors.HexColor(cls.HEADER_COLOUR)
+        alt_colour  = colors.HexColor(cls.ALT_ROW)
+        ok_colour   = colors.HexColor(cls.OK_BG)
+        alm_colour  = colors.HexColor(cls.ALARM_BG)
+
+        doc = SimpleDocTemplate(
+            path,
+            pagesize=A4,
+            rightMargin=14 * mm,
+            leftMargin=14 * mm,
+            topMargin=12 * mm,
+            bottomMargin=12 * mm,
+        )
+
+        # Running header/footer callback
+        _station = station or "—"
+        _runway  = runway or "—"
+        _ref     = report_ref or "ILS-RPT"
+        _company = cls.COMPANY
+
+        def _on_page(canvas, doc_obj):
+            canvas.saveState()
+            canvas.setFont("Helvetica", 8)
+            if doc_obj.page >= 2:
+                hdr_text = "Normarc ILS Flight Inspection Report  |  {0}  |  RWY {1}".format(
+                    _station, _runway)
+                canvas.drawCentredString(A4[0] / 2.0, A4[1] - 8 * mm, hdr_text)
+            ftr_text = "{0}  |  {1}  |  Page {2}".format(_ref, _company, doc_obj.page)
+            canvas.drawCentredString(A4[0] / 2.0, 8 * mm, ftr_text)
+            canvas.restoreState()
+
+        elements = []
+
+        # Pre-compute overall status for cover page
+        _all_params = [
+            ("Course Alignment", loc_data.get("loc_course", ""), "LOC"),
+            ("DDM at Course",    loc_data.get("loc_ddm_crs", ""), "LOC"),
+            ("SDM",              loc_data.get("loc_sdm", ""), "LOC"),
+            ("90Hz AM",          loc_data.get("loc_90hz", ""), "LOC"),
+            ("150Hz AM",         loc_data.get("loc_150hz", ""), "LOC"),
+            ("RF Monitor",       loc_data.get("loc_rf_mon", ""), "LOC"),
+            ("Glide Angle",      gp_data.get("gp_angle", ""), "GP"),
+            ("DDM at Glide Path",gp_data.get("gp_ddm", ""), "GP"),
+            ("SDM",              gp_data.get("gp_sdm", ""), "GP"),
+            ("90Hz AM",          gp_data.get("gp_90hz", ""), "GP"),
+            ("150Hz AM",         gp_data.get("gp_150hz", ""), "GP"),
+            ("RF Monitor",       gp_data.get("gp_rf_mon", ""), "GP"),
+        ]
+        _overall_out = any(
+            cls._check_status(p, v, sys) == "OUT"
+            for p, v, sys in _all_params
+        )
+        badge_status = "UNSERVICEABLE" if _overall_out else "SERVICEABLE"
+        badge_bg = cls.ALARM_BG if _overall_out else cls.OK_BG
+
+        # ---- Cover page ----
+        elements.append(Spacer(1, 10 * mm))
+        elements.append(Paragraph("Normarc ILS", title_style))
+        elements.append(Paragraph("FLIGHT INSPECTION REPORT", heading_style))
+        elements.append(HRFlowable(width="100%", thickness=2, color=hdr_colour))
+        elements.append(Spacer(1, 4 * mm))
+
+        badge_status = "SERVICEABLE"
+        meta_rows = [
+            ["Station", station or "—",   "Runway",      runway or "—"],
+            ["Technician", technician or "—", "Date",    now_str],
+            ["Report Ref", report_ref or "—", "Overall", badge_status],
+        ]
+        meta_table = Table(meta_rows, colWidths=[28 * mm, 60 * mm, 28 * mm, 60 * mm])
+        meta_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#DCE6F2")),
+            ("BACKGROUND", (0, 2), (3, 2), colors.HexColor(badge_bg)),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(meta_table)
+        elements.append(Spacer(1, 6 * mm))
+
+        # System status summary
+        sum_rows = [
+            ["System", "Status", "Last Check"],
+            ["LOC",     badge_status, now_str],
+            ["GP",      badge_status, now_str],
+            ["Monitor", "NORMAL",     now_str],
+        ]
+        sum_table = Table(sum_rows, colWidths=[40 * mm, 60 * mm, 76 * mm])
+        sum_style = [
+            ("BACKGROUND", (0, 0), (-1, 0), hdr_colour),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("BACKGROUND", (0, 1), (-1, -1), alt_colour),
+        ]
+        sum_table.setStyle(TableStyle(sum_style))
+        elements.append(Paragraph("System Status Summary", section_style))
+        elements.append(sum_table)
+
+        # ---- LOC page ----
+        elements.append(PageBreak())
+        elements.append(Paragraph("LOCALIZER (LOC)", section_style))
+        elements.append(Spacer(1, 3 * mm))
+
+        loc_param_rows = [["Parameter", "Measured Value", "Unit", "ICAO Tolerance", "Status"]]
+        loc_system_params = [
+            ("Course Alignment",  "loc_course",  "deg"),
+            ("DDM at Course",     "loc_ddm_crs", "DDM"),
+            ("Course Width",      "loc_width",   "deg"),
+            ("SDM",               "loc_sdm",     "%"),
+            ("90Hz AM Depth",     "loc_90hz",    "%"),
+            ("150Hz AM Depth",    "loc_150hz",   "%"),
+            ("CSB Power",         "loc_csb_pwr", "W"),
+            ("SBO Power",         "loc_sbo_pwr", "W"),
+            ("CLR Power",         "loc_clr_pwr", "W"),
+            ("RF Monitor",        "loc_rf_mon",  "%"),
+            ("Ident Morse",       "loc_ident",   ""),
+            ("Ident Level",       "loc_id_lvl",  "dB"),
+        ]
+        loc_row_statuses = []
+        for pname, pkey, unit in loc_system_params:
+            val  = str(loc_data.get(pkey, loc_data.get(pname, "—"))) or "—"
+            if val == "": val = "—"
+            icao = cls.ICAO_LOC.get(pname, "")
+            stat = cls._check_status(pname, val, "LOC")
+            loc_param_rows.append([pname, val, unit, icao, "✓ OK" if stat == "OK" else ("✗ OUT" if stat == "OUT" else "—")])
+            loc_row_statuses.append(stat)
+
+        loc_col_w = [52 * mm, 36 * mm, 16 * mm, 46 * mm, 22 * mm]
+        loc_table = Table(loc_param_rows, colWidths=loc_col_w)
+        loc_ts = [
+            ("BACKGROUND", (0, 0), (-1, 0), hdr_colour),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+        ]
+        for i, stat in enumerate(loc_row_statuses, start=1):
+            if stat == "OK":
+                loc_ts.append(("BACKGROUND", (0, i), (-1, i), ok_colour))
+            elif stat == "OUT":
+                loc_ts.append(("BACKGROUND", (0, i), (-1, i), alm_colour))
+            elif i % 2 == 0:
+                loc_ts.append(("BACKGROUND", (0, i), (-1, i), alt_colour))
+        loc_table.setStyle(TableStyle(loc_ts))
+        elements.append(loc_table)
+        elements.append(Spacer(1, 4 * mm))
+
+        # Alarm limits table for LOC
+        elements.append(Paragraph("LOC Alarm Limits", section_style))
+        alm_rows = [["Parameter", "Alarm Limit", "Unit", "Direction"]]
+        for row in NORMARC_ALARM_LIMITS:
+            if row[0] == "LOC":
+                alm_rows.append([row[1], row[2], row[3], row[4]])
+        alm_table = Table(alm_rows, colWidths=[52 * mm, 40 * mm, 30 * mm, 50 * mm])
+        alm_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), hdr_colour),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+            ("BACKGROUND", (0, 1), (-1, -1), alt_colour),
+        ]))
+        elements.append(alm_table)
+
+        # ---- GP page ----
+        elements.append(PageBreak())
+        elements.append(Paragraph("GLIDEPATH (GP)", section_style))
+        elements.append(Spacer(1, 3 * mm))
+
+        gp_param_rows = [["Parameter", "Measured Value", "Unit", "ICAO Tolerance", "Status"]]
+        gp_system_params = [
+            ("Glide Angle",       "gp_angle",    "deg"),
+            ("DDM at Glide Path", "gp_ddm",      "DDM"),
+            ("Sector Width",      "gp_width",    "deg"),
+            ("SDM",               "gp_sdm",      "%"),
+            ("90Hz AM Depth",     "gp_90hz",     "%"),
+            ("150Hz AM Depth",    "gp_150hz",    "%"),
+            ("CSB Power",         "gp_csb_pwr",  "W"),
+            ("SBO Power",         "gp_sbo_pwr",  "W"),
+            ("CLR Power",         "gp_clr_pwr",  "W"),
+            ("RF Monitor",        "gp_rf_mon",   "%"),
+            ("NF Monitor",        "gp_nfm",      "DDM"),
+            ("FF Monitor",        "gp_ffm",      "DDM"),
+        ]
+        gp_row_statuses = []
+        for pname, pkey, unit in gp_system_params:
+            val  = str(gp_data.get(pkey, gp_data.get(pname, "—"))) or "—"
+            if val == "": val = "—"
+            icao = cls.ICAO_GP.get(pname, "")
+            stat = cls._check_status(pname, val, "GP")
+            gp_param_rows.append([pname, val, unit, icao, "✓ OK" if stat == "OK" else ("✗ OUT" if stat == "OUT" else "—")])
+            gp_row_statuses.append(stat)
+
+        gp_table = Table(gp_param_rows, colWidths=loc_col_w)
+        gp_ts = [
+            ("BACKGROUND", (0, 0), (-1, 0), hdr_colour),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+        ]
+        for i, stat in enumerate(gp_row_statuses, start=1):
+            if stat == "OK":
+                gp_ts.append(("BACKGROUND", (0, i), (-1, i), ok_colour))
+            elif stat == "OUT":
+                gp_ts.append(("BACKGROUND", (0, i), (-1, i), alm_colour))
+            elif i % 2 == 0:
+                gp_ts.append(("BACKGROUND", (0, i), (-1, i), alt_colour))
+        gp_table.setStyle(TableStyle(gp_ts))
+        elements.append(gp_table)
+        elements.append(Spacer(1, 4 * mm))
+
+        elements.append(Paragraph("GP Alarm Limits", section_style))
+        gp_alm_rows = [["Parameter", "Alarm Limit", "Unit", "Direction"]]
+        for row in NORMARC_ALARM_LIMITS:
+            if row[0] == "GP":
+                gp_alm_rows.append([row[1], row[2], row[3], row[4]])
+        gp_alm_table = Table(gp_alm_rows, colWidths=[52 * mm, 40 * mm, 30 * mm, 50 * mm])
+        gp_alm_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), hdr_colour),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+            ("BACKGROUND", (0, 1), (-1, -1), alt_colour),
+        ]))
+        elements.append(gp_alm_table)
+
+        # ---- Monitor Status & Notes page ----
+        elements.append(PageBreak())
+        elements.append(Paragraph("MONITOR STATUS & NOTES", section_style))
+        elements.append(Spacer(1, 3 * mm))
+
+        mon_rows = [
+            ["Component", "Status", "Notes"],
+            ["LOC Monitor",  "NORMAL", ""],
+            ["GP Monitor",   "NORMAL", ""],
+            ["TX Status",    "ACTIVE", ""],
+            ["Alarm History","NONE",   ""],
+        ]
+        mon_table = Table(mon_rows, colWidths=[50 * mm, 40 * mm, 86 * mm])
+        mon_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), hdr_colour),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+            ("BACKGROUND", (0, 1), (-1, -1), alt_colour),
+        ]))
+        elements.append(mon_table)
+        elements.append(Spacer(1, 4 * mm))
+
+        elements.append(Paragraph("Notes", section_style))
+        elements.append(Paragraph(notes or "None", normal))
+        elements.append(Spacer(1, 6 * mm))
+
+        sign_rows = [
+            ["Technician",  technician or "________________",
+             "Signature",   "________________"],
+            ["Date / Time", now_str,
+             "",            ""],
+        ]
+        sign_table = Table(sign_rows, colWidths=[28 * mm, 60 * mm, 28 * mm, 60 * mm])
+        sign_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCE6F2")),
+        ]))
+        elements.append(sign_table)
+
+        doc.build(elements, onFirstPage=_on_page, onLaterPages=_on_page)
 
 
 class MemoryUploader:
@@ -1977,6 +2332,9 @@ class NAVAIDSApp(tk.Tk):
         ttk.Button(btn2, text="Read from Device", command=lambda: self._ils_read_cal("loc")).pack(side="left", padx=2)
         ttk.Button(btn2, text="Write to Device", command=lambda: self._ils_write_cal("loc")).pack(side="left", padx=2)
         ttk.Button(btn2, text="Import Normarc CFG", command=self._import_normarc_cfg).pack(side="left", padx=2)
+        ttk.Button(btn2, text="\U0001f4cb Generate ILS Report PDF", command=self._ils_generate_report).pack(side="left", padx=2)
+        ttk.Button(btn2, text="\U0001f4ca Query All & Report", command=self._ils_query_and_report).pack(side="left", padx=2)
+        self._normarc_loc_vars = {key: tk.StringVar(value=default) for _, key, _, default in NORMARC_LOC_CAL_PARAMS}
         loc_cols = ("parameter", "current_value", "target_value", "unit", "status")
         self._normarc_loc_tree = ttk.Treeview(p2, columns=loc_cols, show="headings", height=18)
         for c in loc_cols:
@@ -1995,6 +2353,9 @@ class NAVAIDSApp(tk.Tk):
         ttk.Button(btn3, text="Read from Device", command=lambda: self._ils_read_cal("gp")).pack(side="left", padx=2)
         ttk.Button(btn3, text="Write to Device", command=lambda: self._ils_write_cal("gp")).pack(side="left", padx=2)
         ttk.Button(btn3, text="Import Normarc CFG", command=self._import_normarc_cfg).pack(side="left", padx=2)
+        ttk.Button(btn3, text="\U0001f4cb Generate ILS Report PDF", command=self._ils_generate_report).pack(side="left", padx=2)
+        ttk.Button(btn3, text="\U0001f4ca Query All & Report", command=self._ils_query_and_report).pack(side="left", padx=2)
+        self._normarc_gp_vars = {key: tk.StringVar(value=default) for _, key, _, default in NORMARC_GP_CAL_PARAMS}
         gp_cols = ("parameter", "current_value", "target_value", "unit", "status")
         self._normarc_gp_tree = ttk.Treeview(p3, columns=gp_cols, show="headings", height=18)
         for c in gp_cols:
@@ -2073,15 +2434,169 @@ class NAVAIDSApp(tk.Tk):
         self._ils_log_msg("[ILS] {0}: {1}".format(key, resp))
 
     def _ils_query_all(self):
-        for key in ("loc_freq", "loc_course", "loc_ddm", "gp_angle", "gp_ddm",
-                    "ils_mon", "ils_alarm", "ils_status"):
-            cmd = NORMARC_CMDS.get(key, "")
-            if cmd:
-                resp = self.comm.send(cmd)
-                self._ils_log_msg("[ILS] {0}: {1}".format(key, resp))
-                self._ils_status_tree.insert("", "end", values=(
-                    "LOC" if key.startswith("loc") else "GP" if key.startswith("gp") else "ILS",
-                    key, resp, "", ""))
+        loc_cmds = {
+            "LOC Frequency":     "loc_freq",
+            "Course Alignment":  "loc_course",
+            "Width (DDM 0.155)": "loc_width",
+            "SDM":               "loc_sdm",
+            "CSB Power":         "loc_csb_pwr",
+            "SBO Power":         "loc_sbo_pwr",
+            "CLR Power":         "loc_clr_pwr",
+            "90 Hz AM Depth":    "loc_90hz",
+            "150 Hz AM Depth":   "loc_150hz",
+            "RF Monitor Level":  "loc_rf_mon",
+            "DDM at Course":     "loc_ddm_crs",
+            "Ident Morse":       "loc_ident",
+            "Ident Level":       "loc_id_lvl",
+        }
+        for label, cmd_key in loc_cmds.items():
+            cmd = NORMARC_CMDS.get(cmd_key, cmd_key)
+            resp = self.comm.send(cmd)
+            if hasattr(self, "_normarc_loc_vars") and cmd_key in self._normarc_loc_vars:
+                self._normarc_loc_vars[cmd_key].set(resp)
+            self._ils_log_msg("[ILS] LOC {0}: {1}".format(label, resp))
+        gp_cmds = {
+            "GP Frequency":      "gp_freq",
+            "Glide Angle":       "gp_angle",
+            "GP Width":          "gp_width",
+            "SDM":               "gp_sdm",
+            "CSB Power":         "gp_csb_pwr",
+            "SBO Power":         "gp_sbo_pwr",
+            "CLR Power":         "gp_clr_pwr",
+            "90 Hz AM Depth":    "gp_90hz",
+            "150 Hz AM Depth":   "gp_150hz",
+            "RF Monitor Level":  "gp_rf_mon",
+            "DDM at Glide Path": "gp_ddm",
+            "Near Field Monitor":"gp_nfm",
+            "Far Field Monitor": "gp_ffm",
+        }
+        for label, cmd_key in gp_cmds.items():
+            cmd = NORMARC_CMDS.get(cmd_key, cmd_key)
+            resp = self.comm.send(cmd)
+            if hasattr(self, "_normarc_gp_vars") and cmd_key in self._normarc_gp_vars:
+                self._normarc_gp_vars[cmd_key].set(resp)
+            self._ils_log_msg("[ILS] GP {0}: {1}".format(label, resp))
+
+    def _ils_generate_report(self):
+        """Open ILS report generation dialog."""
+        if not RL_OK:
+            messagebox.showerror("Missing dependency",
+                "reportlab is required to generate PDF reports.\n"
+                "Install it with: pip install reportlab")
+            return
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Normarc ILS Flight Inspection Report")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+
+        station_var    = tk.StringVar(value=self.station_var.get() if hasattr(self, "station_var") else "")
+        runway_var     = tk.StringVar(value="")
+        tech_var       = tk.StringVar(value=self.tech_var.get() if hasattr(self, "tech_var") else "")
+        ref_var        = tk.StringVar(value="ILS-RPT-{0}".format(datetime.datetime.now().strftime("%Y%m%d")))
+        notes_var      = tk.StringVar(value="")
+        data_source    = tk.StringVar(value="config")
+
+        fields = [
+            ("Station (ICAO):", station_var),
+            ("Runway:",         runway_var),
+            ("Technician:",     tech_var),
+            ("Report Ref:",     ref_var),
+            ("Notes:",          notes_var),
+        ]
+        for row_idx, (label, var) in enumerate(fields):
+            ttk.Label(frm, text=label, width=18, anchor="w").grid(row=row_idx, column=0, sticky="w", pady=2)
+            ttk.Entry(frm, textvariable=var, width=32).grid(row=row_idx, column=1, columnspan=2, sticky="ew", pady=2)
+
+        src_frm = ttk.LabelFrame(frm, text="Data source", padding=6)
+        src_frm.grid(row=len(fields), column=0, columnspan=3, sticky="ew", pady=6)
+        ttk.Radiobutton(src_frm, text="Use imported config", variable=data_source, value="config").pack(anchor="w")
+        ttk.Radiobutton(src_frm, text="Query device now",    variable=data_source, value="query").pack(anchor="w")
+
+        prog_var   = tk.DoubleVar(value=0.0)
+        prog_lbl   = tk.StringVar(value="")
+        prog_bar   = ttk.Progressbar(frm, variable=prog_var, maximum=100)
+        prog_bar.grid(row=len(fields) + 1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        ttk.Label(frm, textvariable=prog_lbl).grid(row=len(fields) + 2, column=0, columnspan=3, sticky="w")
+
+        btn_frm = ttk.Frame(frm)
+        btn_frm.grid(row=len(fields) + 3, column=0, columnspan=3, pady=8)
+
+        gen_btn = ttk.Button(btn_frm, text="\U0001f4cb Generate & Save PDF")
+        gen_btn.pack(side="left", padx=4)
+        ttk.Button(btn_frm, text="\u2716 Cancel", command=dlg.destroy).pack(side="left", padx=4)
+
+        def _do_generate():
+            if data_source.get() == "query":
+                prog_lbl.set("Querying device…")
+                dlg.update_idletasks()
+                self._ils_query_all()
+            loc_data = {}
+            if hasattr(self, "_normarc_loc_vars"):
+                loc_data = {k: v.get() for k, v in self._normarc_loc_vars.items()}
+            gp_data = {}
+            if hasattr(self, "_normarc_gp_vars"):
+                gp_data = {k: v.get() for k, v in self._normarc_gp_vars.items()}
+            save_path = filedialog.asksaveasfilename(
+                parent=dlg,
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+                initialfile="{0}.pdf".format(ref_var.get() or "ILS-Report"))
+            if not save_path:
+                return
+
+            gen_btn.configure(state="disabled")
+
+            def _worker():
+                try:
+                    dlg.after(0, lambda: prog_lbl.set("Generating PDF…"))
+                    dlg.after(0, lambda: prog_var.set(10))
+                    NormarcILSReport.generate(
+                        path=save_path,
+                        loc_data=loc_data,
+                        gp_data=gp_data,
+                        station=station_var.get(),
+                        runway=runway_var.get(),
+                        technician=tech_var.get(),
+                        notes=notes_var.get(),
+                        report_ref=ref_var.get(),
+                    )
+                    dlg.after(0, lambda: prog_var.set(100))
+                    dlg.after(0, lambda: prog_lbl.set("Done."))
+
+                    def _finish():
+                        if messagebox.askyesno("Report saved",
+                                "Report saved to:\n{0}\n\nOpen file now?".format(save_path),
+                                parent=dlg):
+                            try:
+                                import subprocess, sys as _sys
+                                if _sys.platform.startswith("win"):
+                                    os.startfile(save_path)
+                                elif _sys.platform == "darwin":
+                                    subprocess.call(["open", save_path])
+                                else:
+                                    subprocess.call(["xdg-open", save_path])
+                            except Exception:
+                                pass
+                        dlg.destroy()
+
+                    dlg.after(0, _finish)
+                except Exception as exc:
+                    _msg = str(exc)
+                    dlg.after(0, lambda: prog_lbl.set("Error."))
+                    dlg.after(0, lambda: messagebox.showerror("PDF Error", _msg, parent=dlg))
+                    dlg.after(0, lambda: gen_btn.configure(state="normal"))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        gen_btn.configure(command=_do_generate)
+
+    def _ils_query_and_report(self):
+        """Query all Normarc params then immediately open the report dialog."""
+        self._ils_query_all()
+        self._ils_generate_report()
 
     def _ils_read_cal(self, system):
         self._ils_log_msg("[ILS] Read {0} calibration from device...".format(system.upper()))
