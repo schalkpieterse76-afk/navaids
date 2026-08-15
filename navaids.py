@@ -14,6 +14,7 @@ import collections
 import math
 import random
 import datetime
+import re
 import struct
 import sys
 import zlib
@@ -1858,7 +1859,6 @@ class NAVAIDSApp(tk.Tk):
             "lrci":   (self._vor_lrci_tree, self._vor_lrci_text, ["LRCI"]),
         }
 
-        import re
         # Pattern: [READONLY] NODE FUNC_NUM PARAM_IDX VALUE ; Function: NODE - SECTION, PARAM_NAME
         pat = re.compile(
             r'^(READONLY\s+)?(\S+)\s+(\d+)\s+(\d+)\s+(\S+)\s*;?\s*(?:Function:\s*(.*))?$',
@@ -2073,6 +2073,8 @@ class NAVAIDSApp(tk.Tk):
         self._ils_log_msg("[ILS] {0}: {1}".format(key, resp))
 
     def _ils_query_all(self):
+        for item in self._ils_status_tree.get_children():
+            self._ils_status_tree.delete(item)
         for key in ("loc_freq", "loc_course", "loc_ddm", "gp_angle", "gp_ddm",
                     "ils_mon", "ils_alarm", "ils_status"):
             cmd = NORMARC_CMDS.get(key, "")
@@ -2141,7 +2143,6 @@ class NAVAIDSApp(tk.Tk):
 
     def _parse_normarc_cfg(self, raw):
         """Parse Normarc config lines and update LOC/GP calibration treeviews."""
-        import re
         loc_map = {key: (name, unit, default) for name, key, unit, default in NORMARC_LOC_CAL_PARAMS}
         gp_map = {key: (name, unit, default) for name, key, unit, default in NORMARC_GP_CAL_PARAMS}
         pat = re.compile(r'^(\w+)\s*=\s*([^;]+?)(?:\s*;.*)?$')
@@ -2158,7 +2159,7 @@ class NAVAIDSApp(tk.Tk):
                 name, unit, default = gp_map[param_key]
                 self._normarc_gp_tree.item(param_key, values=(name, value, default, unit, ""))
 
-
+    def _tab_african(self, parent):
         self.runway_trees["african"] = self._build_runway_tree(parent, AFRICAN_RUNWAYS)
 
     def _tab_saaf(self, parent):
