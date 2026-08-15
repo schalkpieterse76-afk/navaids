@@ -456,7 +456,7 @@ class ADSBRecorder:
             self._file.write(struct.pack("<d", self._start_ts))  # start ts
             self._file.write(b"\x00" * 12)                       # reserved
             self._file.flush()
-        self.recording = True
+            self.recording = True
         self.log(f"[REC] Recording started \u2192 {path}")
 
     def write_frame(self, raw_bytes: bytes):
@@ -496,6 +496,32 @@ class ADSBRecorder:
             return os.path.getsize(self._path) if self._path else 0
         except OSError:
             return 0
+
+
+# ---------------------------------------------------------------------------
+# Helper: scan an open .adsbrec file (positioned after the 32-byte header)
+# and return (frame_count, last_rel_time).  Does not close the file.
+# ---------------------------------------------------------------------------
+def _scan_adsbrec_frames(fh) -> Tuple[int, float]:
+    """Count frames and find the last relative timestamp in a recording file."""
+    frame_count = 0
+    last_rel    = 0.0
+    while True:
+        marker = fh.read(2)
+        if not marker or marker != REPLAY_FRAME_MARKER:
+            break
+        rel_bytes = fh.read(8)
+        if len(rel_bytes) < 8:
+            break
+        rel = struct.unpack("<d", rel_bytes)[0]
+        len_bytes = fh.read(2)
+        if len(len_bytes) < 2:
+            break
+        data_len = struct.unpack("<H", len_bytes)[0]
+        fh.seek(data_len, 1)
+        frame_count += 1
+        last_rel = rel
+    return frame_count, last_rel
 
 
 # ---------------------------------------------------------------------------
@@ -552,25 +578,7 @@ class ADSBReplayer:
             fh.read(12)  # reserved
 
             # Count frames and find duration by scanning the file
-            frame_count = 0
-            last_rel    = 0.0
-            while True:
-                marker = fh.read(2)
-                if not marker:
-                    break
-                if marker != REPLAY_FRAME_MARKER:
-                    break
-                rel_bytes = fh.read(8)
-                if len(rel_bytes) < 8:
-                    break
-                rel = struct.unpack("<d", rel_bytes)[0]
-                len_bytes = fh.read(2)
-                if len(len_bytes) < 2:
-                    break
-                data_len = struct.unpack("<H", len_bytes)[0]
-                fh.seek(data_len, 1)
-                frame_count += 1
-                last_rel = rel
+            frame_count, last_rel = _scan_adsbrec_frames(fh)
 
         mode_names = self._MODE_NAMES
         feed_mode = mode_names[feed_mode_idx] if feed_mode_idx < len(mode_names) else "UNKNOWN"
@@ -782,7 +790,6 @@ class ADSBReplayer:
                     # Timing
                     speed = self._speed
                     if speed > 0.0:
-                        interval = (rel - prev_rel) / speed
                         elapsed  = time.time() - wall_start
                         expected = rel / speed
                         sleep_t  = expected - elapsed
@@ -1262,24 +1269,8 @@ class NAVAIDSApp(tk.Tk):
                     mode_idx  = struct.unpack("<H", mode_idx_b)[0]
                     start_ts  = struct.unpack("<d", start_ts_b)[0]
                     feed_mode = mode_names[mode_idx] if mode_idx < len(mode_names) else "?"
-                    # Count frames quickly
-                    frame_count = 0
-                    last_rel    = 0.0
-                    while True:
-                        marker = fh.read(2)
-                        if not marker or marker != REPLAY_FRAME_MARKER:
-                            break
-                        rel_b = fh.read(8)
-                        if len(rel_b) < 8:
-                            break
-                        rel = struct.unpack("<d", rel_b)[0]
-                        len_b = fh.read(2)
-                        if len(len_b) < 2:
-                            break
-                        data_len = struct.unpack("<H", len_b)[0]
-                        fh.seek(data_len, 1)
-                        frame_count += 1
-                        last_rel = rel
+                    # Count frames quickly using shared helper
+                    frame_count, last_rel = _scan_adsbrec_frames(fh)
 
                 date_str = datetime.fromtimestamp(start_ts).strftime("%Y-%m-%d %H:%M:%S")
                 dur_s    = int(last_rel)
