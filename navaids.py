@@ -47,7 +47,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     RL_OK = True
 except Exception:
     A4 = None
@@ -60,6 +60,7 @@ except Exception:
     Spacer = None
     HRFlowable = None
     KeepTogether = None
+    PageBreak = None
     getSampleStyleSheet = None
     ParagraphStyle = None
     TA_CENTER = 1
@@ -105,6 +106,21 @@ RADAR_TRAIL_MAX = 60
 RADAR_DEFAULT_RANGE_NM = 80
 RADAR_GRID_STEP_NM = 10
 RADAR_MIN_SIZE = 300
+DIFF_SECTIONS = [
+    "MON 1  -  Calibration",
+    "MON 2  -  Calibration",
+    "MON 1  -  Alarm limits",
+    "MON 2  -  Alarm limits",
+    "MON 1  -  TSG Alarm limits",
+    "MON 2  -  TSG Alarm limits",
+    "TX 1  -  Adjustments",
+    "TX 2  -  Adjustments",
+    "TX 1  -  Configuration",
+    "TX 2  -  Configuration",
+    "LRCI  -  Station Configuration",
+    "LRCI  -  Environmental Setup",
+    "LRCI  -  Automatic Restart",
+]
 
 THALES_CMDS = {
     "ping": "PING",
@@ -1636,6 +1652,15 @@ class NAVAIDSApp(tk.Tk):
         self.runway_trees = {}
         self.lda_summary = None
         self.terrain_box = None
+        self._lda_a = {}
+        self._lda_b = {}
+        self._lda_a_path = ""
+        self._lda_b_path = ""
+        self._lda_diff_rows = []
+        self._lda_diff_tree = None
+        self._lda_a_label = None
+        self._lda_b_label = None
+        self._lda_diff_sec_lb = None
         self.hex_view = None
         self.compare_view = None
         self.patch_text = None
@@ -1689,6 +1714,7 @@ class NAVAIDSApp(tk.Tk):
             ("saaf", "SAAF", self._tab_saaf),
             ("calibration", "Calibration", self._tab_calibration),
             ("lda_memory", "LDA Memory", self._tab_lda_memory),
+            ("lda_diff", "LDA Diff", self._tab_lda_diff),
             ("hex_viewer", "Hex Viewer", self._tab_hex_viewer),
             ("compare", "Compare", self._tab_compare),
             ("patch", "Patch", self._tab_patch),
@@ -2185,6 +2211,74 @@ class NAVAIDSApp(tk.Tk):
         self.terrain_box = tk.Listbox(parent)
         self.terrain_box.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
+    def _tab_lda_diff(self, parent):
+        """LDA Diff View — compare two Thales CVOR .lda files parameter by parameter."""
+        top = ttk.Frame(parent)
+        top.pack(fill="x", padx=8, pady=8)
+        row_a = ttk.Frame(top)
+        row_a.pack(fill="x", pady=2)
+        ttk.Button(row_a, text="📂 Load LDA File A", command=self._lda_diff_load_a).pack(side="left", padx=(0, 8))
+        self._lda_a_label = tk.Label(row_a, text="A: (none)  |  (none)  |  (none)", anchor="w")
+        self._lda_a_label.pack(side="left", fill="x", expand=True)
+        row_b = ttk.Frame(top)
+        row_b.pack(fill="x", pady=2)
+        ttk.Button(row_b, text="📂 Load LDA File B", command=self._lda_diff_load_b).pack(side="left", padx=(0, 8))
+        self._lda_b_label = tk.Label(row_b, text="B: (none)  |  (none)  |  (none)", anchor="w")
+        self._lda_b_label.pack(side="left", fill="x", expand=True)
+        row_btn = ttk.Frame(top)
+        row_btn.pack(fill="x", pady=(6, 0))
+        ttk.Button(row_btn, text="⚖ Compare", command=self._lda_diff_compare).pack(side="left", padx=2)
+        ttk.Button(row_btn, text="📋 Export Diff CSV", command=self._lda_diff_export_csv).pack(side="left", padx=2)
+        ttk.Button(row_btn, text="🖨 Export Diff PDF", command=self._lda_diff_export_pdf).pack(side="left", padx=2)
+        ttk.Label(row_btn, text="Load both LDA files and click Compare").pack(side="left", padx=12)
+
+        body = ttk.PanedWindow(parent, orient="horizontal")
+        body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        left = ttk.Frame(body)
+        right = ttk.Frame(body)
+        body.add(left, weight=1)
+        body.add(right, weight=4)
+        ttk.Label(left, text="Sections").pack(anchor="w", pady=(0, 4))
+        self._lda_diff_sec_lb = tk.Listbox(left, width=20, exportselection=False)
+        self._lda_diff_sec_lb.pack(fill="both", expand=True)
+        self._lda_diff_sec_lb.bind("<<ListboxSelect>>", self._lda_diff_on_section_select)
+        self._lda_diff_sec_lb.insert("end", "All sections")
+        self._lda_diff_sec_lb.selection_set(0)
+        self._lda_diff_sec_lb.activate(0)
+
+        ttk.Label(right, text="Diff results").pack(anchor="w", pady=(0, 4))
+        cols = ("section", "parameter", "value_a", "value_b", "delta", "status")
+        tree = ttk.Treeview(right, columns=cols, show="headings")
+        tree.heading("section", text="Section")
+        tree.heading("parameter", text="Parameter")
+        tree.heading("value_a", text="Value A")
+        tree.heading("value_b", text="Value B")
+        tree.heading("delta", text="Delta")
+        tree.heading("status", text="Status")
+        tree.column("section", width=160)
+        tree.column("parameter", width=220)
+        tree.column("value_a", width=120)
+        tree.column("value_b", width=120)
+        tree.column("delta", width=80)
+        tree.column("status", width=90)
+        tree.tag_configure("unchanged", background="#f0fff0")
+        tree.tag_configure("changed", background="#fff9c4")
+        tree.tag_configure("only_a", background="#ffd6d6")
+        tree.tag_configure("only_b", background="#d6eaff")
+        tree.tag_configure("non_numeric", background="#f5f5f5")
+        tree.tag_configure("header", background="#003366", foreground="#ffffff")
+        tree.pack(fill="both", expand=True)
+        self._lda_diff_tree = tree
+        self._lda_diff_tree.insert("", "end", values=("", "Load both LDA files and click Compare", "", "", "", ""), tags=("non_numeric",))
+
+        legend = ttk.Frame(right)
+        legend.pack(fill="x", pady=(4, 0))
+        tk.Label(legend, text="🟢 Unchanged", bg="#f0fff0").pack(side="left", padx=2)
+        tk.Label(legend, text="🟡 Changed", bg="#fff9c4").pack(side="left", padx=2)
+        tk.Label(legend, text="🔴 Only in A", bg="#ffd6d6").pack(side="left", padx=2)
+        tk.Label(legend, text="🔵 Only in B", bg="#d6eaff").pack(side="left", padx=2)
+        tk.Label(legend, text="⚪ Non-numeric / text", bg="#f5f5f5").pack(side="left", padx=2)
+
     def _tab_hex_viewer(self, parent):
         self.hex_view = HexViewer(parent)
         self.hex_view.pack(fill="both", expand=True)
@@ -2537,6 +2631,384 @@ class NAVAIDSApp(tk.Tk):
         self.hex_data = lda_to_bytes(self.lda_data)
         self.hex_view.load_data(self.hex_data)
         self._log("[LDA] imported {0}".format(path))
+
+    def _lda_diff_load_a(self):
+        path = filedialog.askopenfilename(
+            title="Load LDA File A",
+            filetypes=[("Thales LDA", "*.lda *.LDA"), ("All", "*.*")])
+        if not path:
+            return
+        self._lda_a = import_lda(path)
+        self._lda_a_path = path
+        ts, station = self._lda_extract_meta(self._lda_a)
+        self._lda_a_label.config(
+            text="A: {0}  |  {1}  |  {2}".format(
+                os.path.basename(path), ts, station))
+        self._log("[DIFF] Loaded LDA A: {0}".format(os.path.basename(path)))
+
+    def _lda_diff_load_b(self):
+        path = filedialog.askopenfilename(
+            title="Load LDA File B",
+            filetypes=[("Thales LDA", "*.lda *.LDA"), ("All", "*.*")])
+        if not path:
+            return
+        self._lda_b = import_lda(path)
+        self._lda_b_path = path
+        ts, station = self._lda_extract_meta(self._lda_b)
+        self._lda_b_label.config(
+            text="B: {0}  |  {1}  |  {2}".format(
+                os.path.basename(path), ts, station))
+        self._log("[DIFF] Loaded LDA B: {0}".format(os.path.basename(path)))
+
+    def _lda_extract_meta(self, lda_data: dict):
+        """Extract (timestamp_str, station_str) from a parsed LDA dict."""
+        printout = lda_data.get("printout", "")
+        timestamp = ""
+        station = ""
+        for line in printout.splitlines():
+            if "->" in line and not timestamp:
+                parts = line.split()
+                if len(parts) >= 5:
+                    timestamp = " ".join(parts[-5:])
+            if "Site :" in line and not station:
+                try:
+                    station = line.split("Site :")[1].split(",")[0].strip()
+                except Exception:
+                    pass
+            if timestamp and station:
+                break
+        return timestamp or "(unknown date)", station or "(unknown station)"
+
+    def _lda_diff_compare(self):
+        """Parse both LDA files, extract parameters section by section, compute diff."""
+        if not self._lda_a or not self._lda_b:
+            messagebox.showwarning("LDA Diff", "Please load both LDA files first.")
+            return
+        self._lda_diff_rows = self._build_diff_rows(self._lda_a, self._lda_b)
+        self._lda_diff_populate_tree(self._lda_diff_rows)
+        self._lda_diff_populate_sections()
+        self._log("[DIFF] Compare complete: {0} rows".format(len(self._lda_diff_rows)))
+
+    def _lda_norm_section_name(self, name):
+        parts = [p.strip() for p in re.split(r"\s*-\s*", str(name or "").strip())]
+        parts = [p for p in parts if p]
+        if len(parts) >= 2:
+            return " - ".join(parts)
+        return re.sub(r"\s+", " ", str(name or "").strip())
+
+    def _lda_display_section_name(self, name):
+        return self._lda_norm_section_name(name)
+
+    def _lda_parse_numeric_value(self, value):
+        if value is None:
+            return None
+        m = re.search(r"[-+]?\d+(?:\.\d+)?", str(value))
+        if not m:
+            return None
+        try:
+            return float(m.group(0))
+        except Exception:
+            return None
+
+    def _build_diff_rows(self, lda_a, lda_b):
+        rows = []
+        sec_a_raw = lda_a.get("sections", {}) if isinstance(lda_a, dict) else {}
+        sec_b_raw = lda_b.get("sections", {}) if isinstance(lda_b, dict) else {}
+        sec_a = {}
+        sec_b = {}
+        for key, value in sec_a_raw.items():
+            sec_a[self._lda_norm_section_name(key)] = value
+        for key, value in sec_b_raw.items():
+            sec_b[self._lda_norm_section_name(key)] = value
+        for section_name in DIFF_SECTIONS:
+            section_key = self._lda_norm_section_name(section_name)
+            section_label = self._lda_display_section_name(section_name)
+            text_a = sec_a.get(section_key, "")
+            text_b = sec_b.get(section_key, "")
+            params_a = self._parse_printout_section(text_a)
+            params_b = self._parse_printout_section(text_b)
+            all_params = sorted(set(params_a.keys()) | set(params_b.keys()))
+            for param in all_params:
+                in_a = param in params_a
+                in_b = param in params_b
+                value_a = params_a.get(param, "")
+                value_b = params_b.get(param, "")
+                delta = "N/A"
+                status = "non_numeric"
+                if in_a and in_b:
+                    if value_a == value_b:
+                        status = "unchanged"
+                        delta = "="
+                    else:
+                        na = self._lda_parse_numeric_value(value_a)
+                        nb = self._lda_parse_numeric_value(value_b)
+                        if na is None or nb is None:
+                            status = "non_numeric"
+                            delta = "N/A"
+                        else:
+                            dlt = nb - na
+                            if abs(dlt) < 1e-12:
+                                status = "unchanged"
+                                delta = "="
+                            else:
+                                status = "changed"
+                                delta = "{0:+.2f}".format(dlt)
+                elif in_a:
+                    status = "only_a"
+                else:
+                    status = "only_b"
+                rows.append({
+                    "section": section_label,
+                    "parameter": param,
+                    "value_a": value_a,
+                    "value_b": value_b,
+                    "delta": delta,
+                    "status": status,
+                })
+        return rows
+
+    def _parse_printout_section(self, text):
+        params = {}
+        lines = [line for line in str(text or "").splitlines() if line.strip()]
+        i = 0
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            if stripped in ("Adjustable Range", "Read Only") or "..." in stripped:
+                i += 1
+                continue
+            if any(month in stripped for month in months):
+                i += 1
+                continue
+            if stripped.startswith("---") or stripped.startswith("==="):
+                i += 1
+                continue
+            if line and not line[0].isspace():
+                label = stripped
+                j = i + 1
+                value = ""
+                while j < len(lines):
+                    candidate_line = lines[j]
+                    candidate = candidate_line.strip()
+                    if "..." in candidate:
+                        j += 1
+                        continue
+                    if candidate_line and not candidate_line[0].isspace():
+                        break
+                    if candidate:
+                        value = candidate
+                        break
+                    j += 1
+                if label and value:
+                    params[label] = value
+                i = j + 1 if j > i else i + 1
+            else:
+                i += 1
+        return params
+
+    def _lda_diff_populate_tree(self, rows, filter_section=None):
+        if self._lda_diff_tree is None:
+            return
+        self._lda_diff_tree.delete(*self._lda_diff_tree.get_children())
+        current_section = None
+        for row in rows:
+            if filter_section and filter_section != "All sections" \
+                    and row["section"] != filter_section:
+                continue
+            if row["section"] != current_section:
+                current_section = row["section"]
+                self._lda_diff_tree.insert(
+                    "", "end",
+                    values=(current_section, "", "", "", "", ""),
+                    tags=("header",))
+            tag = row["status"]
+            status_label = {
+                "unchanged": "= Equal",
+                "changed": "≠ Changed",
+                "only_a": "← Only A",
+                "only_b": "→ Only B",
+                "non_numeric": "~ Text",
+            }.get(tag, "")
+            self._lda_diff_tree.insert(
+                "", "end",
+                values=(
+                    "",
+                    row["parameter"],
+                    row["value_a"],
+                    row["value_b"],
+                    row["delta"],
+                    status_label,
+                ),
+                tags=(tag,))
+        if not self._lda_diff_tree.get_children():
+            self._lda_diff_tree.insert("", "end", values=("", "No data for selected section", "", "", "", ""))
+
+    def _lda_diff_populate_sections(self):
+        if self._lda_diff_sec_lb is None:
+            return
+        self._lda_diff_sec_lb.delete(0, "end")
+        self._lda_diff_sec_lb.insert("end", "All sections")
+        present = {row.get("section", "") for row in self._lda_diff_rows}
+        ordered = [self._lda_display_section_name(s) for s in DIFF_SECTIONS]
+        for section_name in ordered:
+            if section_name in present:
+                self._lda_diff_sec_lb.insert("end", section_name)
+        extras = sorted([p for p in present if p and p not in ordered])
+        for section_name in extras:
+            self._lda_diff_sec_lb.insert("end", section_name)
+        self._lda_diff_sec_lb.selection_set(0)
+        self._lda_diff_sec_lb.activate(0)
+
+    def _lda_diff_on_section_select(self, _event=None):
+        if self._lda_diff_sec_lb is None:
+            return
+        selected = self._lda_diff_sec_lb.curselection()
+        if not selected:
+            return
+        section = self._lda_diff_sec_lb.get(selected[0])
+        self._lda_diff_populate_tree(self._lda_diff_rows, section)
+
+    def _lda_diff_export_csv(self):
+        if not self._lda_diff_rows:
+            messagebox.showwarning("Export", "No diff data. Run Compare first.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("All", "*.*")])
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["Section", "Parameter", "Value A", "Value B",
+                             "Delta", "Status"])
+            for row in self._lda_diff_rows:
+                writer.writerow([
+                    row["section"], row["parameter"],
+                    row["value_a"], row["value_b"],
+                    row["delta"], row["status"],
+                ])
+        self._log("[DIFF] exported CSV: {0}".format(path))
+
+    def _lda_diff_export_pdf(self):
+        if not RL_OK:
+            messagebox.showwarning("Export", "PDF export requires reportlab.")
+            return
+        if not self._lda_diff_rows:
+            messagebox.showwarning("Export", "No diff data. Run Compare first.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf"), ("All", "*.*")])
+        if not path:
+            return
+        file_a_name = os.path.basename(self._lda_a_path) if self._lda_a_path else "(none)"
+        file_b_name = os.path.basename(self._lda_b_path) if self._lda_b_path else "(none)"
+        meta_a = self._lda_extract_meta(self._lda_a or {})
+        meta_b = self._lda_extract_meta(self._lda_b or {})
+        total = len(self._lda_diff_rows)
+        changed = len([r for r in self._lda_diff_rows if r.get("status") == "changed"])
+        only_a = len([r for r in self._lda_diff_rows if r.get("status") == "only_a"])
+        only_b = len([r for r in self._lda_diff_rows if r.get("status") == "only_b"])
+        by_section = collections.OrderedDict()
+        for section_name in DIFF_SECTIONS:
+            by_section[self._lda_display_section_name(section_name)] = []
+        for row in self._lda_diff_rows:
+            by_section.setdefault(row.get("section", ""), []).append(row)
+        doc = SimpleDocTemplate(
+            path,
+            pagesize=A4,
+            rightMargin=12 * mm,
+            leftMargin=12 * mm,
+            topMargin=12 * mm,
+            bottomMargin=12 * mm)
+        styles = getSampleStyleSheet()
+        elements = []
+        elements.append(Paragraph("Thales CVOR LDA Parameter Comparison Report", styles["Title"]))
+        elements.append(Spacer(1, 4 * mm))
+        meta_rows = [
+            ["File A", file_a_name],
+            ["File A Date", meta_a[0]],
+            ["File A Station", meta_a[1]],
+            ["File B", file_b_name],
+            ["File B Date", meta_b[0]],
+            ["File B Station", meta_b[1]],
+            ["Comparison Date", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+        ]
+        meta_tbl = Table(meta_rows, colWidths=[42 * mm, 138 * mm])
+        meta_tbl.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E8EDF5")),
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ]))
+        elements.append(meta_tbl)
+        elements.append(Spacer(1, 4 * mm))
+        sum_rows = [
+            ["Total Parameters", str(total)],
+            ["Changed", str(changed)],
+            ["Only in A", str(only_a)],
+            ["Only in B", str(only_b)],
+        ]
+        sum_tbl = Table(sum_rows, colWidths=[42 * mm, 138 * mm])
+        sum_tbl.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F2F6FB")),
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ]))
+        elements.append(sum_tbl)
+
+        for idx, (section_name, sec_rows) in enumerate(by_section.items()):
+            if idx > 0:
+                elements.append(PageBreak())
+            elements.append(Paragraph(section_name, styles["Heading2"]))
+            table_rows = [["Parameter", "Value A", "Value B", "Delta", "Status"]]
+            if not sec_rows:
+                table_rows.append(["(no parameters)", "", "", "", ""])
+            else:
+                for row in sec_rows:
+                    status_label = {
+                        "unchanged": "Unchanged",
+                        "changed": "Changed",
+                        "only_a": "Only in A",
+                        "only_b": "Only in B",
+                        "non_numeric": "Non-numeric",
+                    }.get(row.get("status", ""), "")
+                    table_rows.append([
+                        row.get("parameter", ""),
+                        row.get("value_a", ""),
+                        row.get("value_b", ""),
+                        row.get("delta", ""),
+                        status_label,
+                    ])
+            table = Table(table_rows, colWidths=[62 * mm, 40 * mm, 40 * mm, 18 * mm, 24 * mm], repeatRows=1)
+            style = [
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#003366")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ]
+            for row_idx, row in enumerate(table_rows[1:], start=1):
+                status_txt = row[4]
+                if status_txt == "Changed":
+                    style.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#FFF9C4")))
+                elif status_txt == "Only in A":
+                    style.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#FFD6D6")))
+                elif status_txt == "Only in B":
+                    style.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#D6EAFF")))
+            table.setStyle(TableStyle(style))
+            elements.append(table)
+
+        def footer(canvas, doc_obj):
+            canvas.saveState()
+            canvas.setFont("Helvetica", 8)
+            footer_text = "LDA Comparison  |  {0} vs {1}  |  Page {2}".format(
+                file_a_name, file_b_name, doc_obj.page)
+            canvas.drawCentredString(A4[0] / 2.0, 8 * mm, footer_text)
+            canvas.restoreState()
+
+        doc.build(elements, onFirstPage=footer, onLaterPages=footer)
+        self._log("[DIFF] exported PDF: {0}".format(path))
 
     def _run_terrain(self):
         findings = self.terrain_analysis.analyse(self.lda_data)
