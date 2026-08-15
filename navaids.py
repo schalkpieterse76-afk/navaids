@@ -345,8 +345,14 @@ class CommManager:
                 except Exception:
                     resp = ""
                 return resp
-        if self._tcp_sock is not None:
-            return self.send_tcp(data)
+            if self._tcp_sock is not None:
+                payload = (data.strip() + "\n").encode("utf-8", "ignore")
+                self._tcp_sock.sendall(payload)
+                try:
+                    resp = self._tcp_sock.recv(4096).decode("utf-8", "ignore").strip()
+                except Exception:
+                    resp = ""
+                return resp
         return self._simulate_device_response(data)
 
     def _simulate_device_response(self, data):
@@ -602,7 +608,7 @@ class ThalesVORReport:
         for section, label, cmd_key, unit, _ in VOR_REPORT_FIELDS:
             sections.setdefault(section, []).append((label, cmd_key, unit))
         lines = [hr("┌", "┬", "┐")]
-        lines.append(line(cls.THales_header(station)))
+        lines.append(line(cls.thales_header(station)))
         lines.append(line(cls.DOC_TITLE))
         ref_text = "Ref: {0}    Model: {1}".format(cls.DOC_REF, cls.THALES_MODEL)
         lines.append(line(ref_text))
@@ -642,11 +648,11 @@ class ThalesVORReport:
         return "\n".join(lines)
 
     @classmethod
-    def THales_header(cls, station):
-        return "{0} - {1}".format(cls.THales_label(), station or "UNKNOWN STATION")
+    def thales_header(cls, station):
+        return "{0} - {1}".format(cls.thales_label(), station or "UNKNOWN STATION")
 
     @classmethod
-    def THales_label(cls):
+    def thales_label(cls):
         return cls.THALES_COMPANY
 
     @classmethod
@@ -2081,8 +2087,10 @@ class NAVAIDSApp(tk.Tk):
 
     def _radar_draw_navaids(self):
         for row in SAAF_RUNWAYS[:3]:
-            lat = self.radar_center_lat.get() + random.uniform(-0.3, 0.3)
-            lon = self.radar_center_lon.get() + random.uniform(-0.3, 0.3)
+            # Use fixed offsets derived from runway index to give stable positions
+            idx = SAAF_RUNWAYS.index(row)
+            lat = self.radar_center_lat.get() + (idx - 1) * 0.15
+            lon = self.radar_center_lon.get() + (idx - 1) * 0.10
             x, y = self._latlon_to_canvas(lat, lon)
             self.radar_canvas.create_polygon(x, y - 6, x + 5, y + 4, x - 5, y + 4, outline="#1bf2ff", fill="")
             self.radar_canvas.create_text(x + 8, y - 8, text=row["ICAO"], fill="#7ee6ff", anchor="w")
@@ -2090,8 +2098,6 @@ class NAVAIDSApp(tk.Tk):
     def _radar_on_click(self, event):
         best = None
         best_d = 999999.0
-        for track in list(self.feed.tracks.values()) + [LiveTrack(sim.name) for sim in []]:
-            pass
         for track in self.feed.tracks.values():
             if track.lat is None or track.lon is None:
                 continue
@@ -2225,14 +2231,22 @@ class NAVAIDSApp(tk.Tk):
         path = filedialog.askopenfilename(filetypes=[("Binary", "*.bin *.hex *.ihex"), ("All", "*")])
         if not path:
             return
-        self.patch_orig = self._parse_ihex(path) if path.lower().endswith((".hex", ".ihex")) else open(path, "rb").read()
+        if path.lower().endswith((".hex", ".ihex")):
+            self.patch_orig = self._parse_ihex(path)
+        else:
+            with open(path, "rb") as fh:
+                self.patch_orig = fh.read()
         self._log("[PATCH] original loaded {0}".format(path))
 
     def _patch_load_mod(self):
         path = filedialog.askopenfilename(filetypes=[("Binary", "*.bin *.hex *.ihex"), ("All", "*")])
         if not path:
             return
-        self.patch_mod = self._parse_ihex(path) if path.lower().endswith((".hex", ".ihex")) else open(path, "rb").read()
+        if path.lower().endswith((".hex", ".ihex")):
+            self.patch_mod = self._parse_ihex(path)
+        else:
+            with open(path, "rb") as fh:
+                self.patch_mod = fh.read()
         self._log("[PATCH] patched loaded {0}".format(path))
 
     def _patch_generate(self):
