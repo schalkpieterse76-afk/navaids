@@ -242,6 +242,72 @@ NORMARC_ALARM_LIMITS = [
     ("GP",  "SDM",        "44.0",  "%",   "UL"),
 ]
 
+VOR_CAL_PARAMS = {
+    "MON_CAL": [
+        ("Cal 1020Hz AM Depth",  "mon_cal_1020hz", "%",   "50.0 ... 200.0",  "80.5",  True),
+        ("Cal 9960Hz AM Depth",  "mon_cal_9960hz", "%",   "50.0 ... 200.0",  "94.0",  True),
+        ("Cal FM Index",         "mon_cal_fm_idx", "%",   "50.0 ... 200.0",  "100.0", True),
+        ("AGC Adjust",           "mon_agc_adj",    "%",   "0.0 ... 99.9",    "84.5",  True),
+        ("Cal Azimuth Monitor",  "mon_cal_az",     "deg", "359.0 ... 1.0",   "0.00",  True),
+        ("Cal 30Hz AM Depth",    "mon_cal_30hz",   "%",   "50.0 ... 200.0",  "83.0",  True),
+        ("Digital Attenuation",  "mon_dig_atten",  "dB",  "0 ... 31",        "0",     True),
+    ],
+    "MON_ALARM": [
+        ("RF Level UL",          "mon_rf_ul",      "%",   "50 ... 150",      "125",   True),
+        ("RF Level LL",          "mon_rf_ll",      "%",   "50 ... 150",      "75",    True),
+        ("9960Hz Distortion UL", "mon_9960dist_ul","%",   "0.0 ... 99.9",    "5.0",   True),
+        ("9960Hz Distortion LL", "mon_9960dist_ll","%",   "0.0 ... 99.9",    "0.0",   True),
+        ("30Hz AM UL",           "mon_30am_ul",    "%",   "0.0 ... 99.9",    "34.5",  True),
+        ("30Hz AM LL",           "mon_30am_ll",    "%",   "0.0 ... 99.9",    "24.5",  True),
+        ("9960Hz AM UL",         "mon_9960am_ul",  "%",   "0.0 ... 99.9",    "34.5",  True),
+        ("9960Hz AM LL",         "mon_9960am_ll",  "%",   "0.0 ... 99.9",    "24.5",  True),
+        ("FM Index UL",          "mon_fmidx_ul",   "",    "0.0 ... 99.9",    "18.5",  True),
+        ("FM Index LL",          "mon_fmidx_ll",   "",    "0.0 ... 99.9",    "11.0",  True),
+        ("1020Hz AM UL",         "mon_1020am_ul",  "%",   "0.0 ... 99.9",    "11.0",  True),
+        ("1020Hz AM LL",         "mon_1020am_ll",  "%",   "0.0 ... 99.9",    "8.0",   True),
+        ("Alarm Delay",          "mon_alm_delay",  "s",   "5 ... 255",       "40",    True),
+        ("Frequency Delta UL",   "mon_freq_ul",    "Hz",  "1 ... 10000",     "2400",  True),
+        ("Frequency Delta LL",   "mon_freq_ll",    "Hz",  "1 ... 10000",     "2400",  True),
+    ],
+    "TX_ADJ": [
+        ("Carrier Power",        "tx_carrier_pwr", "W",   "0.0 ... 130.0",   "50.0",  True),
+        ("SBA Phase",            "tx_sba_phase",   "deg", "0 ... 359",       "247",   True),
+        ("SBA Level",            "tx_sba_level",   "%",   "0.0 ... 99.9",    "38.9",  True),
+        ("SB Level Multiplier",  "tx_sb_mult",     "%",   "80.0 ... 120.0",  "100.0", True),
+        ("SBB Level",            "tx_sbb_level",   "%",   "0.0 ... 99.9",    "38.9",  True),
+        ("SBB Phase",            "tx_sbb_phase",   "deg", "0 ... 359",       "114",   True),
+        ("SBB 30Hz Phase Shift", "tx_sbb_30phase", "deg", "355.0 ... 5.0",   "0.0",   True),
+        ("9960Hz AM Depth",      "tx_9960am",      "%",   "0.0 ... 40.0",    "29.7",  True),
+        ("Modulation Index",     "tx_mod_idx",     "",    "0.0 ... 25.0",    "16.0",  True),
+        ("1020Hz AM Depth",      "tx_1020am",      "%",   "0.0 ... 20.0",    "10.0",  True),
+        ("Voice AM Depth",       "tx_voice_am",    "%",   "0.0 ... 40.0",    "20.0",  True),
+        ("Azimuth Alignment",    "tx_az_align",    "deg", "0.00 ... 359.95", "138.00",True),
+    ],
+    "TX_CFG": [
+        ("Carrier Frequency",    "tx_freq",        "MHz", "108.00 ... 118.00","115.00",True),
+        ("Identification Morse", "tx_ident",       "",    "A-Z *",           "LTV*",  True),
+        ("DME Trigger",          "tx_dme_trig",    "",    "Code 1:3 / Off",  "Code 1:3",True),
+        ("CSB RF Power",         "tx_csb_pwr",     "",    "ON / OFF",        "ON",    False),
+        ("USB/SBA Power",        "tx_usb_pwr",     "",    "ON / OFF",        "ON",    False),
+        ("LSB/SBB Power",        "tx_lsb_pwr",     "",    "ON / OFF",        "ON",    False),
+        ("Software Version",     "sw_version",     "",    "read only",       "4.02",  False),
+        ("Station Type",         "tx_stn_type",    "",    "CVOR / DVOR",     "CVOR",  False),
+        ("Power",                "tx_power_class", "",    "50W / 100W",      "50W",   False),
+    ],
+    "LRCI_CFG": [
+        ("Carrier Frequency",    "lrci_freq",      "MHz", "108.00 ... 118.00","115.00",True),
+        ("Hot Standby Mode",     "lrci_hsby",      "",    "Yes / No",        "No",    True),
+        ("Monitor Logic",        "lrci_mon_logic", "",    "AND / OR",        "AND",   True),
+        ("Ident Monitoring Exec","lrci_ident_exec","",    "Yes / No",        "No",    True),
+        ("Field Monitoring",     "lrci_field_mon", "",    "With 8PGC / None","With 8PGC",True),
+        ("Alarm Delay",          "lrci_alm_delay", "s",   "5 ... 255",       "70",    True),
+        ("Stabilization Time",   "lrci_stab_time", "s",   "0 ... 900",       "300",   True),
+        ("Delay After 1st Fail", "lrci_delay1",    "s",   "0 ... 900",       "60",    True),
+        ("Delay After 2nd Fail", "lrci_delay2",    "s",   "0 ... 900",       "300",   True),
+        ("Delay After 3rd Fail", "lrci_delay3",    "s",   "0 ... 900",       "600",   True),
+    ],
+}
+
 VOR_REPORT_FIELDS = [
     ("Identification", "SW Version", "sw_version", "", "sw_version"),
     ("Identification", "HW Version", "hw_version", "", "hw_version"),
@@ -1646,6 +1712,20 @@ class NAVAIDSApp(tk.Tk):
         self.inspect_tree = None
         self.radar_canvas = None
         self.track_list = None
+        self._vor_cal_vars   = {}
+        self._vor_alm_vars   = {}
+        self._vor_adj_vars   = {}
+        self._vor_cfg_vars   = {}
+        self._vor_lrci_vars  = {}
+        self._vor_cal_status = {}
+        self._vor_alm_status = {}
+        self._vor_adj_status = {}
+        self._vor_cfg_status = {}
+        self._vor_lrci_status= {}
+        self._normarc_loc_vars   = {}
+        self._normarc_gp_vars    = {}
+        self._normarc_loc_status = {}
+        self._normarc_gp_status  = {}
         self.radar_detail_var = tk.StringVar(value="No track selected")
         self.feed_stats_var = tk.StringVar(value="Messages: 0  Tracks: 0")
         self._build_ui()
@@ -1739,80 +1819,86 @@ class NAVAIDSApp(tk.Tk):
         # --- Page 2: Calibration ---
         p2 = ttk.Frame(sub)
         sub.add(p2, text="Calibration")
-        btns2 = ttk.Frame(p2)
-        btns2.pack(fill="x", padx=8, pady=4)
-        ttk.Button(btns2, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
-        ttk.Button(btns2, text="Apply to Device", command=lambda: self._log("[VOR] Apply calibration not yet connected to device.")).pack(side="left", padx=2)
-        ttk.Button(btns2, text="Print", command=lambda: self._log("[VOR] Print calibration not yet implemented.")).pack(side="left", padx=2)
-        cal_cols = ("node", "parameter", "value", "range", "comment")
-        self._vor_cal_tree = ttk.Treeview(p2, columns=cal_cols, show="headings", height=14)
-        for c in cal_cols:
-            self._vor_cal_tree.heading(c, text=c.title())
-            self._vor_cal_tree.column(c, width=130 if c != "comment" else 240)
-        self._vor_cal_tree.pack(fill="both", expand=True, padx=8)
-        self._vor_cal_text = ScrolledText(p2, height=6, wrap="none", font=("Courier", 9))
+        ttk.Button(p2, text="\U0001f4e5 Import Thales LDA",
+                   command=self._import_thales_lda).pack(anchor="nw", padx=8, pady=(4, 0))
+        self._vor_cal_status, _ = self._build_cal_form(
+            p2,
+            VOR_CAL_PARAMS["MON_CAL"],
+            self._vor_cal_vars,
+            send_cb=lambda: self._vor_send_cal_page(self._vor_cal_vars),
+            query_cb=lambda: self._vor_query_cal_page(self._vor_cal_vars),
+            reset_cb=lambda: self._vor_reset_cal_page(self._vor_cal_vars, VOR_CAL_PARAMS["MON_CAL"]),
+            save_cb=lambda: self._vor_save_cal_page(self._vor_cal_vars, "MON_CAL"),
+        )
+        self._vor_cal_text = ScrolledText(p2, height=4, wrap="none", font=("Courier", 9))
         self._vor_cal_text.pack(fill="x", padx=8, pady=(0, 8))
 
         # --- Page 3: Alarm Limits ---
         p3 = ttk.Frame(sub)
         sub.add(p3, text="Alarm Limits")
-        btns3 = ttk.Frame(p3)
-        btns3.pack(fill="x", padx=8, pady=4)
-        ttk.Button(btns3, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
-        alm_cols = ("node", "parameter", "value", "range", "comment")
-        self._vor_alm_tree = ttk.Treeview(p3, columns=alm_cols, show="headings", height=14)
-        for c in alm_cols:
-            self._vor_alm_tree.heading(c, text=c.title())
-            self._vor_alm_tree.column(c, width=130 if c != "comment" else 240)
-        self._vor_alm_tree.tag_configure("alarm", background="#ffe0e0")
-        self._vor_alm_tree.pack(fill="both", expand=True, padx=8)
-        self._vor_alm_text = ScrolledText(p3, height=6, wrap="none", font=("Courier", 9))
+        ttk.Button(p3, text="\U0001f4e5 Import Thales LDA",
+                   command=self._import_thales_lda).pack(anchor="nw", padx=8, pady=(4, 0))
+        self._vor_alm_status, _ = self._build_cal_form(
+            p3,
+            VOR_CAL_PARAMS["MON_ALARM"],
+            self._vor_alm_vars,
+            send_cb=lambda: self._vor_send_cal_page(self._vor_alm_vars),
+            query_cb=lambda: self._vor_query_cal_page(self._vor_alm_vars),
+            reset_cb=lambda: self._vor_reset_cal_page(self._vor_alm_vars, VOR_CAL_PARAMS["MON_ALARM"]),
+            save_cb=lambda: self._vor_save_cal_page(self._vor_alm_vars, "MON_ALARM"),
+        )
+        self._vor_alm_text = ScrolledText(p3, height=4, wrap="none", font=("Courier", 9))
         self._vor_alm_text.pack(fill="x", padx=8, pady=(0, 8))
 
         # --- Page 4: TX Adjustments ---
         p4 = ttk.Frame(sub)
         sub.add(p4, text="TX Adjustments")
-        btns4 = ttk.Frame(p4)
-        btns4.pack(fill="x", padx=8, pady=4)
-        ttk.Button(btns4, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
-        adj_cols = ("node", "parameter", "value", "range", "comment")
-        self._vor_adj_tree = ttk.Treeview(p4, columns=adj_cols, show="headings", height=14)
-        for c in adj_cols:
-            self._vor_adj_tree.heading(c, text=c.title())
-            self._vor_adj_tree.column(c, width=130 if c != "comment" else 240)
-        self._vor_adj_tree.pack(fill="both", expand=True, padx=8)
-        self._vor_adj_text = ScrolledText(p4, height=6, wrap="none", font=("Courier", 9))
+        ttk.Button(p4, text="\U0001f4e5 Import Thales LDA",
+                   command=self._import_thales_lda).pack(anchor="nw", padx=8, pady=(4, 0))
+        self._vor_adj_status, _ = self._build_cal_form(
+            p4,
+            VOR_CAL_PARAMS["TX_ADJ"],
+            self._vor_adj_vars,
+            send_cb=lambda: self._vor_send_cal_page(self._vor_adj_vars),
+            query_cb=lambda: self._vor_query_cal_page(self._vor_adj_vars),
+            reset_cb=lambda: self._vor_reset_cal_page(self._vor_adj_vars, VOR_CAL_PARAMS["TX_ADJ"]),
+            save_cb=lambda: self._vor_save_cal_page(self._vor_adj_vars, "TX_ADJ"),
+        )
+        self._vor_adj_text = ScrolledText(p4, height=4, wrap="none", font=("Courier", 9))
         self._vor_adj_text.pack(fill="x", padx=8, pady=(0, 8))
 
         # --- Page 5: TX Configuration ---
         p5 = ttk.Frame(sub)
         sub.add(p5, text="TX Configuration")
-        btns5 = ttk.Frame(p5)
-        btns5.pack(fill="x", padx=8, pady=4)
-        ttk.Button(btns5, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
-        cfg_cols = ("node", "parameter", "value", "range", "comment")
-        self._vor_cfg_tree = ttk.Treeview(p5, columns=cfg_cols, show="headings", height=14)
-        for c in cfg_cols:
-            self._vor_cfg_tree.heading(c, text=c.title())
-            self._vor_cfg_tree.column(c, width=130 if c != "comment" else 240)
-        self._vor_cfg_tree.tag_configure("readonly", background="#e8e8e8")
-        self._vor_cfg_tree.pack(fill="both", expand=True, padx=8)
-        self._vor_cfg_text = ScrolledText(p5, height=6, wrap="none", font=("Courier", 9))
+        ttk.Button(p5, text="\U0001f4e5 Import Thales LDA",
+                   command=self._import_thales_lda).pack(anchor="nw", padx=8, pady=(4, 0))
+        self._vor_cfg_status, _ = self._build_cal_form(
+            p5,
+            VOR_CAL_PARAMS["TX_CFG"],
+            self._vor_cfg_vars,
+            send_cb=lambda: self._vor_send_cal_page(self._vor_cfg_vars),
+            query_cb=lambda: self._vor_query_cal_page(self._vor_cfg_vars),
+            reset_cb=lambda: self._vor_reset_cal_page(self._vor_cfg_vars, VOR_CAL_PARAMS["TX_CFG"]),
+            save_cb=lambda: self._vor_save_cal_page(self._vor_cfg_vars, "TX_CFG"),
+        )
+        self._vor_cfg_text = ScrolledText(p5, height=4, wrap="none", font=("Courier", 9))
         self._vor_cfg_text.pack(fill="x", padx=8, pady=(0, 8))
 
         # --- Page 6: LRCI Configuration ---
         p6 = ttk.Frame(sub)
         sub.add(p6, text="LRCI Configuration")
-        btns6 = ttk.Frame(p6)
-        btns6.pack(fill="x", padx=8, pady=4)
-        ttk.Button(btns6, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
-        lrci_cols = ("node", "parameter", "value", "range", "comment")
-        self._vor_lrci_tree = ttk.Treeview(p6, columns=lrci_cols, show="headings", height=14)
-        for c in lrci_cols:
-            self._vor_lrci_tree.heading(c, text=c.title())
-            self._vor_lrci_tree.column(c, width=130 if c != "comment" else 240)
-        self._vor_lrci_tree.pack(fill="both", expand=True, padx=8)
-        self._vor_lrci_text = ScrolledText(p6, height=6, wrap="none", font=("Courier", 9))
+        ttk.Button(p6, text="\U0001f4e5 Import Thales LDA",
+                   command=self._import_thales_lda).pack(anchor="nw", padx=8, pady=(4, 0))
+        self._vor_lrci_status, _ = self._build_cal_form(
+            p6,
+            VOR_CAL_PARAMS["LRCI_CFG"],
+            self._vor_lrci_vars,
+            send_cb=lambda: self._vor_send_cal_page(self._vor_lrci_vars),
+            query_cb=lambda: self._vor_query_cal_page(self._vor_lrci_vars),
+            reset_cb=lambda: self._vor_reset_cal_page(self._vor_lrci_vars, VOR_CAL_PARAMS["LRCI_CFG"]),
+            save_cb=lambda: self._vor_save_cal_page(self._vor_lrci_vars, "LRCI_CFG"),
+        )
+        self._vor_lrci_text = ScrolledText(p6, height=4, wrap="none", font=("Courier", 9))
         self._vor_lrci_text.pack(fill="x", padx=8, pady=(0, 8))
 
         # --- Page 7: Raw LDA ---
@@ -1844,22 +1930,29 @@ class NAVAIDSApp(tk.Tk):
         prog = data.get("prog", [])
         sections = data.get("sections", {})
 
-        # Clear all treeviews
-        for tree in (self._vor_cal_tree, self._vor_alm_tree, self._vor_adj_tree,
-                     self._vor_cfg_tree, self._vor_lrci_tree):
-            for item in tree.get_children():
-                tree.delete(item)
-
-        # Map func_num to (treeview, text_widget, section_keywords)
-        func_map = {
-            "3_mon":  (self._vor_cal_tree,  self._vor_cal_text,  ["MON 1 - Calibration", "MON 2 - Calibration"]),
-            "7_mon":  (self._vor_alm_tree,  self._vor_alm_text,  ["MON 1 - Alarm limits", "MON 2 - Alarm limits"]),
-            "3_tx":   (self._vor_adj_tree,  self._vor_adj_text,  ["TX 1 - Adjustments", "TX 2 - Adjustments"]),
-            "2_tx":   (self._vor_cfg_tree,  self._vor_cfg_text,  ["TX 1 - Configuration", "TX 2 - Configuration"]),
-            "lrci":   (self._vor_lrci_tree, self._vor_lrci_text, ["LRCI"]),
+        # Map func_num+node_type to (var_dict, section_keywords)
+        txt_map = {
+            "3_mon":  (self._vor_cal_vars,  self._vor_cal_text,
+                       ["MON 1 - Calibration", "MON 2 - Calibration"]),
+            "7_mon":  (self._vor_alm_vars,  self._vor_alm_text,
+                       ["MON 1 - Alarm limits", "MON 2 - Alarm limits"]),
+            "3_tx":   (self._vor_adj_vars,  self._vor_adj_text,
+                       ["TX 1 - Adjustments", "TX 2 - Adjustments"]),
+            "2_tx":   (self._vor_cfg_vars,  self._vor_cfg_text,
+                       ["TX 1 - Configuration", "TX 2 - Configuration"]),
+            "lrci":   (self._vor_lrci_vars, self._vor_lrci_text, ["LRCI"]),
         }
 
-        # Pattern: [READONLY] NODE FUNC_NUM PARAM_IDX VALUE ; Function: NODE - SECTION, PARAM_NAME
+        # Build reverse lookup: cmd_key -> var_dict key from VOR_CAL_PARAMS
+        # The LDA prog lines give us param_idx; we match by position
+        cal_param_lists = {
+            "3_mon": VOR_CAL_PARAMS["MON_CAL"],
+            "7_mon": VOR_CAL_PARAMS["MON_ALARM"],
+            "3_tx":  VOR_CAL_PARAMS["TX_ADJ"],
+            "2_tx":  VOR_CAL_PARAMS["TX_CFG"],
+            "lrci":  VOR_CAL_PARAMS["LRCI_CFG"],
+        }
+
         pat = re.compile(
             r'^(READONLY\s+)?(\S+)\s+(\d+)\s+(\d+)\s+(\S+)\s*;?\s*(?:Function:\s*(.*))?$',
             re.IGNORECASE)
@@ -1868,41 +1961,38 @@ class NAVAIDSApp(tk.Tk):
             m = pat.match(line)
             if not m:
                 continue
-            readonly_flag = bool(m.group(1))
             node = m.group(2).upper()
             func_num = int(m.group(3))
-            param_idx = m.group(4)
+            param_idx = int(m.group(4))
             value = m.group(5)
-            comment = (m.group(6) or "").strip()
 
-            # Determine which treeview
             is_mon = node.startswith("MON")
             is_tx = node.startswith("TX")
             is_lrci = node.startswith("LRCI")
 
-            tree = None
-            tag = ()
+            map_key = None
             if is_mon and func_num == 3:
-                tree = self._vor_cal_tree
+                map_key = "3_mon"
             elif is_mon and func_num == 7:
-                tree = self._vor_alm_tree
-                tag = ("alarm",)
+                map_key = "7_mon"
             elif is_tx and func_num == 3:
-                tree = self._vor_adj_tree
+                map_key = "3_tx"
             elif is_tx and func_num == 2:
-                tree = self._vor_cfg_tree
-                if readonly_flag:
-                    tag = ("readonly",)
+                map_key = "2_tx"
             elif is_lrci:
-                tree = self._vor_lrci_tree
+                map_key = "lrci"
 
-            if tree is not None:
-                tree.insert("", "end",
-                            values=(node, "Param {0}".format(param_idx), value, "", comment),
-                            tags=tag)
+            if map_key is not None:
+                var_dict = txt_map[map_key][0]
+                params = cal_param_lists.get(map_key, [])
+                idx = param_idx - 1
+                if 0 <= idx < len(params):
+                    key = params[idx][1]
+                    if key in var_dict:
+                        var_dict[key].set(value)
 
         # Populate printout text widgets from sections
-        for key, (tree, txt_widget, sec_keys) in func_map.items():
+        for map_key, (var_dict, txt_widget, sec_keys) in txt_map.items():
             buf = []
             for sk in sec_keys:
                 content = sections.get(sk, "")
@@ -1933,6 +2023,232 @@ class NAVAIDSApp(tk.Tk):
         ttk.Button(top, text="Clear", command=self._vor_rpt_clear).pack(side="left", padx=2)
         self.vor_preview = ScrolledText(parent, wrap="none")
         self.vor_preview.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+    def _build_cal_form(self, parent, params, var_dict, send_cb=None, query_cb=None,
+                        reset_cb=None, save_cb=None):
+        """Build a scrollable calibration entry form. Returns dict of status labels."""
+        btn_row = ttk.Frame(parent)
+        btn_row.pack(fill="x", padx=8, pady=4)
+        if send_cb:
+            ttk.Button(btn_row, text="\U0001f4e4 Send All to Device",
+                       command=send_cb).pack(side="left", padx=2)
+        if query_cb:
+            ttk.Button(btn_row, text="\U0001f504 Query from Device",
+                       command=query_cb).pack(side="left", padx=2)
+        if reset_cb:
+            ttk.Button(btn_row, text="\u21a9 Reset to Defaults",
+                       command=reset_cb).pack(side="left", padx=2)
+        if save_cb:
+            ttk.Button(btn_row, text="\U0001f4be Save to File",
+                       command=save_cb).pack(side="left", padx=2)
+
+        pb_frame = ttk.Frame(parent)
+        pb_frame.pack(fill="x", padx=8)
+        pb = ttk.Progressbar(pb_frame, mode="indeterminate")
+
+        canvas_frame = ttk.Frame(parent)
+        canvas_frame.pack(fill="both", expand=True, padx=8, pady=4)
+        vsb = ttk.Scrollbar(canvas_frame, orient="vertical")
+        vsb.pack(side="right", fill="y")
+        canvas = tk.Canvas(canvas_frame, yscrollcommand=vsb.set,
+                           highlightthickness=0)
+        canvas.pack(side="left", fill="both", expand=True)
+        vsb.config(command=canvas.yview)
+
+        inner = ttk.Frame(canvas)
+        canvas_win = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_win, width=event.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
+
+        hdr = ttk.Frame(inner)
+        hdr.pack(fill="x", padx=2, pady=(2, 0))
+        ttk.Label(hdr, text="Parameter", width=28, font=("TkDefaultFont", 9, "bold"),
+                  anchor="w").grid(row=0, column=0, padx=2)
+        ttk.Label(hdr, text="Value", width=14, font=("TkDefaultFont", 9, "bold"),
+                  anchor="w").grid(row=0, column=1, padx=2)
+        ttk.Label(hdr, text="Unit", width=6, font=("TkDefaultFont", 9, "bold"),
+                  anchor="w").grid(row=0, column=2, padx=2)
+        ttk.Label(hdr, text="Range", width=22, font=("TkDefaultFont", 9, "bold"),
+                  anchor="w").grid(row=0, column=3, padx=2)
+        ttk.Label(hdr, text="Status", width=8, font=("TkDefaultFont", 9, "bold"),
+                  anchor="w").grid(row=0, column=4, padx=2)
+
+        ttk.Separator(inner, orient="horizontal").pack(fill="x", padx=2, pady=2)
+
+        status_labels = {}
+        for display_name, key, unit, range_str, default, editable in params:
+            sv = tk.StringVar(value=default)
+            var_dict[key] = sv
+            row_frm = ttk.Frame(inner)
+            row_frm.pack(fill="x", padx=2, pady=1)
+            ttk.Label(row_frm, text=display_name, width=28, anchor="w").grid(
+                row=0, column=0, padx=2, sticky="w")
+            entry_state = "normal" if editable else "disabled"
+            ent = ttk.Entry(row_frm, textvariable=sv, width=14, state=entry_state)
+            if not editable:
+                try:
+                    ent.configure(style="Disabled.TEntry")
+                except Exception:
+                    pass
+            ent.grid(row=0, column=1, padx=2)
+            ttk.Label(row_frm, text=unit, width=6, anchor="w").grid(
+                row=0, column=2, padx=2)
+            ttk.Label(row_frm, text=range_str, width=22, anchor="w",
+                      foreground="#666666").grid(row=0, column=3, padx=2)
+            status_lbl = ttk.Label(row_frm, text="\u2014", width=8, anchor="w",
+                                   foreground="gray")
+            status_lbl.grid(row=0, column=4, padx=2)
+            status_labels[key] = status_lbl
+
+        return status_labels, pb
+
+    def _vor_send_cal_page(self, var_dict):
+        """Send all values from a calibration form to the device in a background thread."""
+        def _worker():
+            for key, var in list(var_dict.items()):
+                value = var.get().strip()
+                if not value:
+                    continue
+                thales_cmd = THALES_CMDS.get(key, "")
+                if thales_cmd:
+                    set_cmd = thales_cmd.replace("RPT ", "SET ").replace("?", "")
+                    resp = self.comm.send("{0} {1}".format(set_cmd.strip(), value))
+                else:
+                    resp = self.comm.send("SET {0} {1}".format(key, value))
+                self._log("[VOR] SET {0} = {1} -> {2}".format(key, value, resp))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _vor_query_cal_page(self, var_dict):
+        """Query device for all parameters on a calibration page and update entry widgets."""
+        def _parse_resp(resp):
+            """Extract the value portion from a device response string."""
+            if not resp:
+                return resp
+            # Strip trailing whitespace
+            resp = resp.strip()
+            # If response is "RPT CMD VALUE" or "OK VALUE", take the last token
+            parts = resp.split()
+            if len(parts) >= 2 and parts[0].upper() in ("RPT", "OK", "SET"):
+                return parts[-1]
+            return resp
+
+        def _worker():
+            for key, var in list(var_dict.items()):
+                cmd = THALES_CMDS.get(key, "")
+                if not cmd:
+                    continue
+                resp = self.comm.send(cmd)
+                parsed = _parse_resp(resp)
+                self.after(0, lambda k=key, v=parsed: var_dict[k].set(v))
+                self._log("[VOR] QUERY {0} -> {1}".format(key, resp))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _vor_reset_cal_page(self, var_dict, params):
+        """Reset all entry widgets to their default values."""
+        for display_name, key, unit, range_str, default, editable in params:
+            if key in var_dict:
+                var_dict[key].set(default)
+
+    def _vor_save_cal_page(self, var_dict, page_key, system="VOR"):
+        """Save current calibration values to a JSON file."""
+        path = filedialog.asksaveasfilename(
+            title="Save Calibration Snapshot",
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json"), ("All", "*.*")])
+        if not path:
+            return
+        snapshot = {k: v.get() for k, v in var_dict.items()}
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(snapshot, fh, indent=2)
+        self._log("[{0}] Calibration snapshot saved: {1}".format(
+            system, os.path.basename(path)))
+
+    def _ils_send_cal_page(self, var_dict, system="loc"):
+        """Send all Normarc LOC or GP calibration values to device."""
+        def _worker():
+            for key, var in list(var_dict.items()):
+                value = var.get().strip()
+                if not value:
+                    continue
+                cmd = NORMARC_CMDS.get(key, "")
+                if cmd:
+                    set_cmd = cmd.replace("?", "").strip()
+                    resp = self.comm.send("{0} {1}".format(set_cmd, value))
+                else:
+                    resp = self.comm.send("SET:{0}:{1}".format(key.upper(), value))
+                self._log("[ILS] SET {0} = {1} -> {2}".format(key, value, resp))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _ils_query_cal_page(self, var_dict, params):
+        """Query Normarc device for all calibration parameters and update entry widgets."""
+        def _parse_resp(resp):
+            if not resp:
+                return resp
+            resp = resp.strip()
+            parts = resp.split()
+            if len(parts) >= 2 and parts[0].upper() in ("RPT", "OK", "SET"):
+                return parts[-1]
+            return resp
+
+        def _worker():
+            for name, key, unit, default in params:
+                cmd = NORMARC_CMDS.get(key, "")
+                if not cmd:
+                    continue
+                resp = self.comm.send(cmd)
+                parsed = _parse_resp(resp)
+                self.after(0, lambda k=key, v=parsed: var_dict[k].set(v) if k in var_dict else None)
+                self._log("[ILS] QUERY {0} -> {1}".format(key, resp))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _ils_reset_cal_page(self, var_dict, params):
+        """Reset ILS calibration entry widgets to their default values."""
+        for name, key, unit, default in params:
+            if key in var_dict:
+                var_dict[key].set(default)
+
+    def _update_cal_status(self, var_dict, status_labels, system="vor"):
+        """Colour-code status labels based on parameter values."""
+        for key, lbl in status_labels.items():
+            var = var_dict.get(key)
+            if var is None:
+                continue
+            value_str = var.get().strip()
+            numeric_str = value_str.split()[0] if value_str else ""
+            try:
+                v = float(numeric_str.replace(",", "."))
+            except (ValueError, AttributeError):
+                lbl.configure(text="\u2014", foreground="gray")
+                continue
+            ok = True
+            if "ddm" in key:
+                limit = 0.015 if system in ("loc", "vor") else 0.025
+                ok = abs(v) <= limit
+            elif "90hz" in key or "150hz" in key or "am_depth" in key:
+                ok = 17.0 <= v <= 23.0
+            elif "sdm" in key:
+                ok = 36.0 <= v <= 44.0
+            elif "pwr" in key or "power" in key or "rf_mon" in key:
+                ok = v >= 50.0
+            elif "vswr" in key:
+                ok = v <= 1.5
+            elif "temp" in key:
+                ok = v <= 70.0
+            lbl.configure(text="\u2713 OK" if ok else "\u2717 OUT",
+                          foreground="#28a745" if ok else "#dc3545")
 
     def _tab_ils(self, parent):
         sub = ttk.Notebook(parent)
@@ -1972,38 +2288,34 @@ class NAVAIDSApp(tk.Tk):
         # --- Page 2: LOC Calibration ---
         p2 = ttk.Frame(sub)
         sub.add(p2, text="LOC Calibration")
-        btn2 = ttk.Frame(p2)
-        btn2.pack(fill="x", padx=8, pady=4)
-        ttk.Button(btn2, text="Read from Device", command=lambda: self._ils_read_cal("loc")).pack(side="left", padx=2)
-        ttk.Button(btn2, text="Write to Device", command=lambda: self._ils_write_cal("loc")).pack(side="left", padx=2)
-        ttk.Button(btn2, text="Import Normarc CFG", command=self._import_normarc_cfg).pack(side="left", padx=2)
-        loc_cols = ("parameter", "current_value", "target_value", "unit", "status")
-        self._normarc_loc_tree = ttk.Treeview(p2, columns=loc_cols, show="headings", height=18)
-        for c in loc_cols:
-            self._normarc_loc_tree.heading(c, text=c.replace("_", " ").title())
-            self._normarc_loc_tree.column(c, width=140)
-        for name, key, unit, default in NORMARC_LOC_CAL_PARAMS:
-            self._normarc_loc_tree.insert("", "end", iid=key,
-                values=(name, default, default, unit, ""))
-        self._normarc_loc_tree.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        ttk.Button(p2, text="\U0001f4e5 Import Normarc CFG",
+                   command=self._import_normarc_cfg).pack(anchor="nw", padx=8, pady=(4, 0))
+        _loc_params = [(n, k, u, "", d, True) for n, k, u, d in NORMARC_LOC_CAL_PARAMS]
+        self._normarc_loc_status, _ = self._build_cal_form(
+            p2,
+            _loc_params,
+            self._normarc_loc_vars,
+            send_cb=lambda: self._ils_send_cal_page(self._normarc_loc_vars, "loc"),
+            query_cb=lambda: self._ils_query_cal_page(self._normarc_loc_vars, NORMARC_LOC_CAL_PARAMS),
+            reset_cb=lambda: self._ils_reset_cal_page(self._normarc_loc_vars, NORMARC_LOC_CAL_PARAMS),
+            save_cb=lambda: self._vor_save_cal_page(self._normarc_loc_vars, "LOC", "ILS"),
+        )
 
         # --- Page 3: GP Calibration ---
         p3 = ttk.Frame(sub)
         sub.add(p3, text="GP Calibration")
-        btn3 = ttk.Frame(p3)
-        btn3.pack(fill="x", padx=8, pady=4)
-        ttk.Button(btn3, text="Read from Device", command=lambda: self._ils_read_cal("gp")).pack(side="left", padx=2)
-        ttk.Button(btn3, text="Write to Device", command=lambda: self._ils_write_cal("gp")).pack(side="left", padx=2)
-        ttk.Button(btn3, text="Import Normarc CFG", command=self._import_normarc_cfg).pack(side="left", padx=2)
-        gp_cols = ("parameter", "current_value", "target_value", "unit", "status")
-        self._normarc_gp_tree = ttk.Treeview(p3, columns=gp_cols, show="headings", height=18)
-        for c in gp_cols:
-            self._normarc_gp_tree.heading(c, text=c.replace("_", " ").title())
-            self._normarc_gp_tree.column(c, width=140)
-        for name, key, unit, default in NORMARC_GP_CAL_PARAMS:
-            self._normarc_gp_tree.insert("", "end", iid=key,
-                values=(name, default, default, unit, ""))
-        self._normarc_gp_tree.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        ttk.Button(p3, text="\U0001f4e5 Import Normarc CFG",
+                   command=self._import_normarc_cfg).pack(anchor="nw", padx=8, pady=(4, 0))
+        _gp_params = [(n, k, u, "", d, True) for n, k, u, d in NORMARC_GP_CAL_PARAMS]
+        self._normarc_gp_status, _ = self._build_cal_form(
+            p3,
+            _gp_params,
+            self._normarc_gp_vars,
+            send_cb=lambda: self._ils_send_cal_page(self._normarc_gp_vars, "gp"),
+            query_cb=lambda: self._ils_query_cal_page(self._normarc_gp_vars, NORMARC_GP_CAL_PARAMS),
+            reset_cb=lambda: self._ils_reset_cal_page(self._normarc_gp_vars, NORMARC_GP_CAL_PARAMS),
+            save_cb=lambda: self._vor_save_cal_page(self._normarc_gp_vars, "GP", "ILS"),
+        )
 
         # --- Page 4: Alarm Limits ---
         p4 = ttk.Frame(sub)
@@ -2142,9 +2454,9 @@ class NAVAIDSApp(tk.Tk):
         self._log("[ILS] Normarc config imported: {0}".format(os.path.basename(path)))
 
     def _parse_normarc_cfg(self, raw):
-        """Parse Normarc config lines and update LOC/GP calibration treeviews."""
-        loc_map = {key: (name, unit, default) for name, key, unit, default in NORMARC_LOC_CAL_PARAMS}
-        gp_map = {key: (name, unit, default) for name, key, unit, default in NORMARC_GP_CAL_PARAMS}
+        """Parse Normarc config lines and update LOC/GP calibration entry forms."""
+        loc_keys = {key for name, key, unit, default in NORMARC_LOC_CAL_PARAMS}
+        gp_keys = {key for name, key, unit, default in NORMARC_GP_CAL_PARAMS}
         pat = re.compile(r'^(\w+)\s*=\s*([^;]+?)(?:\s*;.*)?$')
         for line in raw.splitlines():
             m = pat.match(line.strip())
@@ -2152,12 +2464,10 @@ class NAVAIDSApp(tk.Tk):
                 continue
             param_key = m.group(1).strip().lower()
             value = m.group(2).strip()
-            if param_key in loc_map and self._normarc_loc_tree.exists(param_key):
-                name, unit, default = loc_map[param_key]
-                self._normarc_loc_tree.item(param_key, values=(name, value, default, unit, ""))
-            if param_key in gp_map and self._normarc_gp_tree.exists(param_key):
-                name, unit, default = gp_map[param_key]
-                self._normarc_gp_tree.item(param_key, values=(name, value, default, unit, ""))
+            if param_key in loc_keys and param_key in self._normarc_loc_vars:
+                self._normarc_loc_vars[param_key].set(value)
+            if param_key in gp_keys and param_key in self._normarc_gp_vars:
+                self._normarc_gp_vars[param_key].set(value)
 
     def _tab_african(self, parent):
         self.runway_trees["african"] = self._build_runway_tree(parent, AFRICAN_RUNWAYS)
