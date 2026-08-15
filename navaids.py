@@ -14,6 +14,7 @@ import collections
 import math
 import random
 import datetime
+import re
 import struct
 import sys
 import zlib
@@ -164,6 +165,82 @@ ALCATEL_CMDS = {
     "alarm": "READ:ALARM?",
     "reset": "SYSTEM:RESET",
 }
+
+NORMARC_CMDS.update({
+    "loc_freq":   "LOC:FREQ?",
+    "loc_course": "LOC:COURSE?",
+    "loc_ddm":    "LOC:DDM?",
+    "loc_width":  "LOC:WIDTH?",
+    "loc_sdm":    "LOC:SDM?",
+    "loc_power":  "LOC:POWER?",
+    "loc_cal":    "LOC:CAL",
+    "gp_angle":   "GP:ANGLE?",
+    "gp_ddm":     "GP:DDM?",
+    "gp_width":   "GP:WIDTH?",
+    "gp_power":   "GP:POWER?",
+    "gp_cal":     "GP:CAL",
+    "ils_mon":    "ILS:MON?",
+    "ils_alarm":  "ILS:ALM?",
+    "ils_test":   "ILS:TST:START",
+    "ils_status": "ILS:STATUS?",
+})
+
+NORMARC_LOC_CAL_PARAMS = [
+    ("LOC Frequency",      "loc_freq",    "MHz", "108.10"),
+    ("Course Alignment",   "loc_course",  "deg", "0.0"),
+    ("Width (DDM 0.155)",  "loc_width",   "deg", "10.5"),
+    ("SDM",                "loc_sdm",     "%",   "40.0"),
+    ("CSB Power",          "loc_csb_pwr", "W",   "8.0"),
+    ("SBO Power",          "loc_sbo_pwr", "W",   "0.8"),
+    ("CLR Power",          "loc_clr_pwr", "W",   "4.0"),
+    ("90 Hz AM Depth",     "loc_90hz",    "%",   "20.0"),
+    ("150 Hz AM Depth",    "loc_150hz",   "%",   "20.0"),
+    ("RF Monitor Level",   "loc_rf_mon",  "%",   "100.0"),
+    ("DDM at Course",      "loc_ddm_crs", "DDM", "0.000"),
+    ("DDM Alarm Limit",    "loc_ddm_alm", "DDM", "0.015"),
+    ("Power Alarm Limit",  "loc_pwr_alm", "%",   "50.0"),
+    ("Ident Morse",        "loc_ident",   "",    "IXXV"),
+    ("Ident Level",        "loc_id_lvl",  "dB",  "-14.0"),
+]
+
+NORMARC_GP_CAL_PARAMS = [
+    ("GP Frequency",       "gp_freq",     "MHz", "334.70"),
+    ("Glide Angle",        "gp_angle",    "deg", "3.0"),
+    ("GP Width (0.0875)",  "gp_width",    "deg", "1.4"),
+    ("SDM",                "gp_sdm",      "%",   "40.0"),
+    ("CSB Power",          "gp_csb_pwr",  "W",   "2.0"),
+    ("SBO Power",          "gp_sbo_pwr",  "W",   "0.2"),
+    ("CLR Power",          "gp_clr_pwr",  "W",   "1.0"),
+    ("90 Hz AM Depth",     "gp_90hz",     "%",   "20.0"),
+    ("150 Hz AM Depth",    "gp_150hz",    "%",   "20.0"),
+    ("DDM at Glide Path",  "gp_ddm",      "DDM", "0.000"),
+    ("DDM Alarm Limit",    "gp_ddm_alm",  "DDM", "0.025"),
+    ("RF Monitor Level",   "gp_rf_mon",   "%",   "100.0"),
+    ("Power Alarm Limit",  "gp_pwr_alm",  "%",   "50.0"),
+    ("Near Field Monitor", "gp_nfm",      "DDM", "0.000"),
+    ("Far Field Monitor",  "gp_ffm",      "DDM", "0.000"),
+]
+
+NORMARC_ALARM_LIMITS = [
+    ("LOC", "DDM",        "0.015", "DDM", "UL"),
+    ("LOC", "Power",      "50.0",  "%",   "LL"),
+    ("LOC", "RF Monitor", "50.0",  "%",   "LL"),
+    ("LOC", "90Hz AM",    "17.0",  "%",   "LL"),
+    ("LOC", "90Hz AM",    "23.0",  "%",   "UL"),
+    ("LOC", "150Hz AM",   "17.0",  "%",   "LL"),
+    ("LOC", "150Hz AM",   "23.0",  "%",   "UL"),
+    ("LOC", "SDM",        "36.0",  "%",   "LL"),
+    ("LOC", "SDM",        "44.0",  "%",   "UL"),
+    ("GP",  "DDM",        "0.025", "DDM", "UL"),
+    ("GP",  "Power",      "50.0",  "%",   "LL"),
+    ("GP",  "RF Monitor", "50.0",  "%",   "LL"),
+    ("GP",  "90Hz AM",    "17.0",  "%",   "LL"),
+    ("GP",  "90Hz AM",    "23.0",  "%",   "UL"),
+    ("GP",  "150Hz AM",   "17.0",  "%",   "LL"),
+    ("GP",  "150Hz AM",   "23.0",  "%",   "UL"),
+    ("GP",  "SDM",        "36.0",  "%",   "LL"),
+    ("GP",  "SDM",        "44.0",  "%",   "UL"),
+]
 
 VOR_REPORT_FIELDS = [
     ("Identification", "SW Version", "sw_version", "", "sw_version"),
@@ -423,6 +500,22 @@ class CommManager:
             return "PASS"
         if cmd == "PING":
             return "PONG"
+        if "LOC:FREQ" in cmd:
+            return "108.10"
+        if "LOC:COURSE" in cmd:
+            return "0.0"
+        if "LOC:DDM" in cmd:
+            return "0.002"
+        if "GP:ANGLE" in cmd:
+            return "3.00"
+        if "GP:DDM" in cmd:
+            return "0.001"
+        if "ILS:MON" in cmd:
+            return "NORMAL"
+        if "ILS:ALM" in cmd:
+            return "NONE"
+        if "ILS:STATUS" in cmd:
+            return "OPERATIONAL"
         return "OK"
 
     def _reconnect_worker(self):
@@ -500,6 +593,60 @@ def import_lda(path):
             "waypoints": data.get("waypoints", []),
             "obstacles": data.get("obstacles", []),
             "terrain": data.get("terrain", []),
+        }
+    # Detect Thales .lda format (contains BEGIN_PROG or ***PRINTOUT_MX_HEAD***)
+    if "BEGIN_PROG" in text or "***PRINTOUT_MX_HEAD***" in text:
+        prog_lines = []
+        printout_text = ""
+        sections = {}
+        in_prog = False
+        in_printout = False
+        current_section = None
+        section_buf = []
+        printout_buf = []
+        for raw_line in text.splitlines():
+            stripped = raw_line.strip()
+            if stripped == "BEGIN_PROG":
+                in_prog = True
+                continue
+            if stripped == "END_PROG":
+                in_prog = False
+                continue
+            if stripped == "***PRINTOUT_MX_HEAD***":
+                in_printout = True
+                current_section = None
+                section_buf = []
+                continue
+            if stripped == "***END_PRINTOUT***":
+                if current_section and section_buf:
+                    sections[current_section] = "\n".join(section_buf)
+                in_printout = False
+                current_section = None
+                section_buf = []
+                continue
+            if in_prog:
+                if stripped:
+                    prog_lines.append(stripped)
+            elif in_printout:
+                if stripped.startswith("---") and stripped.endswith("---"):
+                    if current_section and section_buf:
+                        sections[current_section] = "\n".join(section_buf)
+                    current_section = stripped.strip("-").strip()
+                    section_buf = []
+                else:
+                    section_buf.append(raw_line)
+                printout_buf.append(raw_line)
+        if current_section and section_buf:
+            sections[current_section] = "\n".join(section_buf)
+        printout_text = "\n".join(printout_buf)
+        return {
+            "raw": text,
+            "prog": prog_lines,
+            "printout": printout_text,
+            "sections": sections,
+            "waypoints": [],
+            "obstacles": [],
+            "terrain": [],
         }
     current = None
     result = {"waypoints": [], "obstacles": [], "terrain": []}
@@ -1560,7 +1707,13 @@ class NAVAIDSApp(tk.Tk):
         self.log_text.pack(fill="both", expand=True, padx=4, pady=4)
 
     def _tab_vor(self, parent):
-        frm = ttk.Frame(parent)
+        sub = ttk.Notebook(parent)
+        sub.pack(fill="both", expand=True)
+
+        # --- Page 1: Status & Control ---
+        p1 = ttk.Frame(sub)
+        sub.add(p1, text="Status & Control")
+        frm = ttk.Frame(p1)
         frm.pack(fill="both", expand=True, padx=8, pady=8)
         row1 = ttk.Frame(frm)
         row1.pack(fill="x", pady=3)
@@ -1583,6 +1736,190 @@ class NAVAIDSApp(tk.Tk):
         self.vor_progress = ttk.Progressbar(pfrm, mode="determinate")
         self.vor_progress.pack(fill="x", expand=True)
 
+        # --- Page 2: Calibration ---
+        p2 = ttk.Frame(sub)
+        sub.add(p2, text="Calibration")
+        btns2 = ttk.Frame(p2)
+        btns2.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btns2, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
+        ttk.Button(btns2, text="Apply to Device", command=lambda: self._log("[VOR] Apply calibration not yet connected to device.")).pack(side="left", padx=2)
+        ttk.Button(btns2, text="Print", command=lambda: self._log("[VOR] Print calibration not yet implemented.")).pack(side="left", padx=2)
+        cal_cols = ("node", "parameter", "value", "range", "comment")
+        self._vor_cal_tree = ttk.Treeview(p2, columns=cal_cols, show="headings", height=14)
+        for c in cal_cols:
+            self._vor_cal_tree.heading(c, text=c.title())
+            self._vor_cal_tree.column(c, width=130 if c != "comment" else 240)
+        self._vor_cal_tree.pack(fill="both", expand=True, padx=8)
+        self._vor_cal_text = ScrolledText(p2, height=6, wrap="none", font=("Courier", 9))
+        self._vor_cal_text.pack(fill="x", padx=8, pady=(0, 8))
+
+        # --- Page 3: Alarm Limits ---
+        p3 = ttk.Frame(sub)
+        sub.add(p3, text="Alarm Limits")
+        btns3 = ttk.Frame(p3)
+        btns3.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btns3, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
+        alm_cols = ("node", "parameter", "value", "range", "comment")
+        self._vor_alm_tree = ttk.Treeview(p3, columns=alm_cols, show="headings", height=14)
+        for c in alm_cols:
+            self._vor_alm_tree.heading(c, text=c.title())
+            self._vor_alm_tree.column(c, width=130 if c != "comment" else 240)
+        self._vor_alm_tree.tag_configure("alarm", background="#ffe0e0")
+        self._vor_alm_tree.pack(fill="both", expand=True, padx=8)
+        self._vor_alm_text = ScrolledText(p3, height=6, wrap="none", font=("Courier", 9))
+        self._vor_alm_text.pack(fill="x", padx=8, pady=(0, 8))
+
+        # --- Page 4: TX Adjustments ---
+        p4 = ttk.Frame(sub)
+        sub.add(p4, text="TX Adjustments")
+        btns4 = ttk.Frame(p4)
+        btns4.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btns4, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
+        adj_cols = ("node", "parameter", "value", "range", "comment")
+        self._vor_adj_tree = ttk.Treeview(p4, columns=adj_cols, show="headings", height=14)
+        for c in adj_cols:
+            self._vor_adj_tree.heading(c, text=c.title())
+            self._vor_adj_tree.column(c, width=130 if c != "comment" else 240)
+        self._vor_adj_tree.pack(fill="both", expand=True, padx=8)
+        self._vor_adj_text = ScrolledText(p4, height=6, wrap="none", font=("Courier", 9))
+        self._vor_adj_text.pack(fill="x", padx=8, pady=(0, 8))
+
+        # --- Page 5: TX Configuration ---
+        p5 = ttk.Frame(sub)
+        sub.add(p5, text="TX Configuration")
+        btns5 = ttk.Frame(p5)
+        btns5.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btns5, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
+        cfg_cols = ("node", "parameter", "value", "range", "comment")
+        self._vor_cfg_tree = ttk.Treeview(p5, columns=cfg_cols, show="headings", height=14)
+        for c in cfg_cols:
+            self._vor_cfg_tree.heading(c, text=c.title())
+            self._vor_cfg_tree.column(c, width=130 if c != "comment" else 240)
+        self._vor_cfg_tree.tag_configure("readonly", background="#e8e8e8")
+        self._vor_cfg_tree.pack(fill="both", expand=True, padx=8)
+        self._vor_cfg_text = ScrolledText(p5, height=6, wrap="none", font=("Courier", 9))
+        self._vor_cfg_text.pack(fill="x", padx=8, pady=(0, 8))
+
+        # --- Page 6: LRCI Configuration ---
+        p6 = ttk.Frame(sub)
+        sub.add(p6, text="LRCI Configuration")
+        btns6 = ttk.Frame(p6)
+        btns6.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btns6, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
+        lrci_cols = ("node", "parameter", "value", "range", "comment")
+        self._vor_lrci_tree = ttk.Treeview(p6, columns=lrci_cols, show="headings", height=14)
+        for c in lrci_cols:
+            self._vor_lrci_tree.heading(c, text=c.title())
+            self._vor_lrci_tree.column(c, width=130 if c != "comment" else 240)
+        self._vor_lrci_tree.pack(fill="both", expand=True, padx=8)
+        self._vor_lrci_text = ScrolledText(p6, height=6, wrap="none", font=("Courier", 9))
+        self._vor_lrci_text.pack(fill="x", padx=8, pady=(0, 8))
+
+        # --- Page 7: Raw LDA ---
+        p7 = ttk.Frame(sub)
+        sub.add(p7, text="Raw LDA")
+        btns7 = ttk.Frame(p7)
+        btns7.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btns7, text="Import Thales LDA", command=self._import_thales_lda).pack(side="left", padx=2)
+        self._vor_raw_text = ScrolledText(p7, wrap="none", font=("Courier", 9))
+        self._vor_raw_text.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+    def _import_thales_lda(self):
+        """Import a Thales CVOR .lda file and populate all VOR sub-tabs."""
+        path = filedialog.askopenfilename(
+            title="Import Thales CVOR LDA",
+            filetypes=[("Thales LDA", "*.lda *.LDA"), ("All", "*.*")])
+        if not path:
+            return
+        self.lda_data = import_lda(path)
+        self._populate_thales_vor_tabs()
+        self._log("[VOR] Thales LDA imported: {0}".format(os.path.basename(path)))
+
+    def _populate_thales_vor_tabs(self):
+        """Populate all VOR sub-tabs from self.lda_data (Thales format)."""
+        data = self.lda_data
+        if not isinstance(data, dict):
+            return
+        raw = data.get("raw", "")
+        prog = data.get("prog", [])
+        sections = data.get("sections", {})
+
+        # Clear all treeviews
+        for tree in (self._vor_cal_tree, self._vor_alm_tree, self._vor_adj_tree,
+                     self._vor_cfg_tree, self._vor_lrci_tree):
+            for item in tree.get_children():
+                tree.delete(item)
+
+        # Map func_num to (treeview, text_widget, section_keywords)
+        func_map = {
+            "3_mon":  (self._vor_cal_tree,  self._vor_cal_text,  ["MON 1 - Calibration", "MON 2 - Calibration"]),
+            "7_mon":  (self._vor_alm_tree,  self._vor_alm_text,  ["MON 1 - Alarm limits", "MON 2 - Alarm limits"]),
+            "3_tx":   (self._vor_adj_tree,  self._vor_adj_text,  ["TX 1 - Adjustments", "TX 2 - Adjustments"]),
+            "2_tx":   (self._vor_cfg_tree,  self._vor_cfg_text,  ["TX 1 - Configuration", "TX 2 - Configuration"]),
+            "lrci":   (self._vor_lrci_tree, self._vor_lrci_text, ["LRCI"]),
+        }
+
+        # Pattern: [READONLY] NODE FUNC_NUM PARAM_IDX VALUE ; Function: NODE - SECTION, PARAM_NAME
+        pat = re.compile(
+            r'^(READONLY\s+)?(\S+)\s+(\d+)\s+(\d+)\s+(\S+)\s*;?\s*(?:Function:\s*(.*))?$',
+            re.IGNORECASE)
+
+        for line in prog:
+            m = pat.match(line)
+            if not m:
+                continue
+            readonly_flag = bool(m.group(1))
+            node = m.group(2).upper()
+            func_num = int(m.group(3))
+            param_idx = m.group(4)
+            value = m.group(5)
+            comment = (m.group(6) or "").strip()
+
+            # Determine which treeview
+            is_mon = node.startswith("MON")
+            is_tx = node.startswith("TX")
+            is_lrci = node.startswith("LRCI")
+
+            tree = None
+            tag = ()
+            if is_mon and func_num == 3:
+                tree = self._vor_cal_tree
+            elif is_mon and func_num == 7:
+                tree = self._vor_alm_tree
+                tag = ("alarm",)
+            elif is_tx and func_num == 3:
+                tree = self._vor_adj_tree
+            elif is_tx and func_num == 2:
+                tree = self._vor_cfg_tree
+                if readonly_flag:
+                    tag = ("readonly",)
+            elif is_lrci:
+                tree = self._vor_lrci_tree
+
+            if tree is not None:
+                tree.insert("", "end",
+                            values=(node, "Param {0}".format(param_idx), value, "", comment),
+                            tags=tag)
+
+        # Populate printout text widgets from sections
+        for key, (tree, txt_widget, sec_keys) in func_map.items():
+            buf = []
+            for sk in sec_keys:
+                content = sections.get(sk, "")
+                if content:
+                    buf.append("=== {0} ===\n{1}".format(sk, content))
+            txt_widget.configure(state="normal")
+            txt_widget.delete("1.0", "end")
+            if buf:
+                txt_widget.insert("1.0", "\n\n".join(buf))
+            txt_widget.configure(state="disabled")
+
+        # Raw LDA
+        self._vor_raw_text.configure(state="normal")
+        self._vor_raw_text.delete("1.0", "end")
+        self._vor_raw_text.insert("1.0", raw)
+        self._vor_raw_text.configure(state="disabled")
+
     def _tab_vor_print(self, parent):
         top = ttk.Frame(parent)
         top.pack(fill="x", padx=8, pady=8)
@@ -1598,13 +1935,229 @@ class NAVAIDSApp(tk.Tk):
         self.vor_preview.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
     def _tab_ils(self, parent):
-        tree = ttk.Treeview(parent, columns=list(AFRICAN_RUNWAYS[0].keys()), show="headings")
-        for col in AFRICAN_RUNWAYS[0].keys():
-            tree.heading(col, text=col)
-            tree.column(col, width=100)
-        for row in AFRICAN_RUNWAYS[:7]:
-            tree.insert("", "end", values=[row[k] for k in AFRICAN_RUNWAYS[0].keys()])
-        tree.pack(fill="both", expand=True, padx=8, pady=8)
+        sub = ttk.Notebook(parent)
+        sub.pack(fill="both", expand=True)
+
+        # --- Page 1: Status & Control ---
+        p1 = ttk.Frame(sub)
+        sub.add(p1, text="Status & Control")
+        top1 = ttk.Frame(p1)
+        top1.pack(fill="x", padx=8, pady=4)
+        ttk.Label(top1, text="LOC Freq (MHz)").pack(side="left")
+        self._ils_loc_freq_var = tk.StringVar(value="108.10")
+        ttk.Entry(top1, textvariable=self._ils_loc_freq_var, width=10).pack(side="left", padx=3)
+        ttk.Label(top1, text="GP Angle (deg)").pack(side="left", padx=(8, 0))
+        self._ils_gp_angle_var = tk.StringVar(value="3.0")
+        ttk.Entry(top1, textvariable=self._ils_gp_angle_var, width=8).pack(side="left", padx=3)
+        ttk.Label(top1, text="Course Align (deg)").pack(side="left", padx=(8, 0))
+        self._ils_course_var = tk.StringVar(value="0.0")
+        ttk.Entry(top1, textvariable=self._ils_course_var, width=8).pack(side="left", padx=3)
+        btn1 = ttk.Frame(p1)
+        btn1.pack(fill="x", padx=8, pady=2)
+        ttk.Button(btn1, text="Query LOC", command=lambda: self._ils_query("loc_freq")).pack(side="left", padx=2)
+        ttk.Button(btn1, text="Query GP", command=lambda: self._ils_query("gp_angle")).pack(side="left", padx=2)
+        ttk.Button(btn1, text="Query All", command=self._ils_query_all).pack(side="left", padx=2)
+        ttk.Button(btn1, text="Calibrate LOC", command=lambda: self._ils_send("loc_cal")).pack(side="left", padx=2)
+        ttk.Button(btn1, text="Calibrate GP", command=lambda: self._ils_send("gp_cal")).pack(side="left", padx=2)
+        ttk.Button(btn1, text="Reset", command=lambda: self._ils_send("reset")).pack(side="left", padx=2)
+        st_cols = ("system", "parameter", "value", "unit", "status")
+        self._ils_status_tree = ttk.Treeview(p1, columns=st_cols, show="headings", height=12)
+        for c in st_cols:
+            self._ils_status_tree.heading(c, text=c.title())
+            self._ils_status_tree.column(c, width=120)
+        self._ils_status_tree.pack(fill="both", expand=True, padx=8)
+        self._ils_log = ScrolledText(p1, height=6, wrap="word")
+        self._ils_log.pack(fill="x", padx=8, pady=(4, 8))
+
+        # --- Page 2: LOC Calibration ---
+        p2 = ttk.Frame(sub)
+        sub.add(p2, text="LOC Calibration")
+        btn2 = ttk.Frame(p2)
+        btn2.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btn2, text="Read from Device", command=lambda: self._ils_read_cal("loc")).pack(side="left", padx=2)
+        ttk.Button(btn2, text="Write to Device", command=lambda: self._ils_write_cal("loc")).pack(side="left", padx=2)
+        ttk.Button(btn2, text="Import Normarc CFG", command=self._import_normarc_cfg).pack(side="left", padx=2)
+        loc_cols = ("parameter", "current_value", "target_value", "unit", "status")
+        self._normarc_loc_tree = ttk.Treeview(p2, columns=loc_cols, show="headings", height=18)
+        for c in loc_cols:
+            self._normarc_loc_tree.heading(c, text=c.replace("_", " ").title())
+            self._normarc_loc_tree.column(c, width=140)
+        for name, key, unit, default in NORMARC_LOC_CAL_PARAMS:
+            self._normarc_loc_tree.insert("", "end", iid=key,
+                values=(name, default, default, unit, ""))
+        self._normarc_loc_tree.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        # --- Page 3: GP Calibration ---
+        p3 = ttk.Frame(sub)
+        sub.add(p3, text="GP Calibration")
+        btn3 = ttk.Frame(p3)
+        btn3.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btn3, text="Read from Device", command=lambda: self._ils_read_cal("gp")).pack(side="left", padx=2)
+        ttk.Button(btn3, text="Write to Device", command=lambda: self._ils_write_cal("gp")).pack(side="left", padx=2)
+        ttk.Button(btn3, text="Import Normarc CFG", command=self._import_normarc_cfg).pack(side="left", padx=2)
+        gp_cols = ("parameter", "current_value", "target_value", "unit", "status")
+        self._normarc_gp_tree = ttk.Treeview(p3, columns=gp_cols, show="headings", height=18)
+        for c in gp_cols:
+            self._normarc_gp_tree.heading(c, text=c.replace("_", " ").title())
+            self._normarc_gp_tree.column(c, width=140)
+        for name, key, unit, default in NORMARC_GP_CAL_PARAMS:
+            self._normarc_gp_tree.insert("", "end", iid=key,
+                values=(name, default, default, unit, ""))
+        self._normarc_gp_tree.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        # --- Page 4: Alarm Limits ---
+        p4 = ttk.Frame(sub)
+        sub.add(p4, text="Alarm Limits")
+        alm_cols = ("system", "parameter", "limit", "unit", "direction")
+        alm_tree = ttk.Treeview(p4, columns=alm_cols, show="headings", height=22)
+        for c in alm_cols:
+            alm_tree.heading(c, text=c.title())
+            alm_tree.column(c, width=120)
+        alm_tree.tag_configure("alarm", background="#ffe0e0")
+        for row in NORMARC_ALARM_LIMITS:
+            alm_tree.insert("", "end", values=row, tags=("alarm",))
+        alm_tree.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # --- Page 5: Monitor Status ---
+        p5 = ttk.Frame(sub)
+        sub.add(p5, text="Monitor Status")
+        ttk.Button(p5, text="Refresh", command=self._ils_refresh_monitor).pack(anchor="nw", padx=8, pady=4)
+        mon_row = ttk.Frame(p5)
+        mon_row.pack(fill="both", expand=True, padx=8, pady=4)
+        loc_frame = ttk.LabelFrame(mon_row, text="Localizer")
+        loc_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
+        gp_frame = ttk.LabelFrame(mon_row, text="Glidepath")
+        gp_frame.pack(side="left", fill="both", expand=True, padx=(4, 0))
+        self._ils_loc_labels = {}
+        self._ils_gp_labels = {}
+        for label_text, key in [("TX Status", "tx_status"), ("Monitor Status", "mon_status"),
+                                 ("DDM", "ddm"), ("Course/Angle", "course"), ("Power", "power"),
+                                 ("Alarms", "alarms")]:
+            r = ttk.Frame(loc_frame)
+            r.pack(fill="x", padx=4, pady=2)
+            ttk.Label(r, text=label_text + ":", width=16, anchor="w").pack(side="left")
+            lbl = ttk.Label(r, text="--", foreground="gray")
+            lbl.pack(side="left")
+            self._ils_loc_labels[key] = lbl
+        for label_text, key in [("TX Status", "tx_status"), ("Monitor Status", "mon_status"),
+                                 ("DDM", "ddm"), ("Glide Angle", "angle"), ("Power", "power"),
+                                 ("Alarms", "alarms")]:
+            r = ttk.Frame(gp_frame)
+            r.pack(fill="x", padx=4, pady=2)
+            ttk.Label(r, text=label_text + ":", width=16, anchor="w").pack(side="left")
+            lbl = ttk.Label(r, text="--", foreground="gray")
+            lbl.pack(side="left")
+            self._ils_gp_labels[key] = lbl
+
+        # --- Page 6: Raw Normarc CFG ---
+        p6 = ttk.Frame(sub)
+        sub.add(p6, text="Raw Normarc CFG")
+        btn6 = ttk.Frame(p6)
+        btn6.pack(fill="x", padx=8, pady=4)
+        ttk.Button(btn6, text="Import Normarc CFG", command=self._import_normarc_cfg).pack(side="left", padx=2)
+        self._normarc_raw_text = ScrolledText(p6, wrap="none", font=("Courier", 9))
+        self._normarc_raw_text.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+    def _ils_query(self, key):
+        cmd = NORMARC_CMDS.get(key, "")
+        if not cmd:
+            return
+        resp = self.comm.send(cmd)
+        self._ils_log_msg("[ILS] {0}: {1}".format(key, resp))
+
+    def _ils_send(self, key):
+        cmd = NORMARC_CMDS.get(key, "")
+        if not cmd:
+            return
+        resp = self.comm.send(cmd)
+        self._ils_log_msg("[ILS] {0}: {1}".format(key, resp))
+
+    def _ils_query_all(self):
+        for item in self._ils_status_tree.get_children():
+            self._ils_status_tree.delete(item)
+        for key in ("loc_freq", "loc_course", "loc_ddm", "gp_angle", "gp_ddm",
+                    "ils_mon", "ils_alarm", "ils_status"):
+            cmd = NORMARC_CMDS.get(key, "")
+            if cmd:
+                resp = self.comm.send(cmd)
+                self._ils_log_msg("[ILS] {0}: {1}".format(key, resp))
+                self._ils_status_tree.insert("", "end", values=(
+                    "LOC" if key.startswith("loc") else "GP" if key.startswith("gp") else "ILS",
+                    key, resp, "", ""))
+
+    def _ils_read_cal(self, system):
+        self._ils_log_msg("[ILS] Read {0} calibration from device...".format(system.upper()))
+
+    def _ils_write_cal(self, system):
+        self._ils_log_msg("[ILS] Write {0} calibration to device...".format(system.upper()))
+
+    def _ils_refresh_monitor(self):
+        mon = self.comm.send(NORMARC_CMDS.get("ils_mon", "ILS:MON?"))
+        alm = self.comm.send(NORMARC_CMDS.get("ils_alarm", "ILS:ALM?"))
+        loc_ddm = self.comm.send(NORMARC_CMDS.get("loc_ddm", "LOC:DDM?"))
+        gp_ddm = self.comm.send(NORMARC_CMDS.get("gp_ddm", "GP:DDM?"))
+        ok_color = "green"
+        alm_color = "red"
+        for key, lbl in self._ils_loc_labels.items():
+            if key == "mon_status":
+                lbl.configure(text=mon, foreground=ok_color if mon == "NORMAL" else alm_color)
+            elif key == "alarms":
+                lbl.configure(text=alm, foreground=ok_color if alm == "NONE" else alm_color)
+            elif key == "ddm":
+                lbl.configure(text=loc_ddm, foreground="black")
+            else:
+                lbl.configure(text="--", foreground="gray")
+        for key, lbl in self._ils_gp_labels.items():
+            if key == "mon_status":
+                lbl.configure(text=mon, foreground=ok_color if mon == "NORMAL" else alm_color)
+            elif key == "alarms":
+                lbl.configure(text=alm, foreground=ok_color if alm == "NONE" else alm_color)
+            elif key == "ddm":
+                lbl.configure(text=gp_ddm, foreground="black")
+            else:
+                lbl.configure(text="--", foreground="gray")
+
+    def _ils_log_msg(self, msg):
+        try:
+            self._ils_log.insert("end", msg + "\n")
+            self._ils_log.see("end")
+        except Exception:
+            pass
+        self._log(msg)
+
+    def _import_normarc_cfg(self):
+        """Import a Normarc ILS config/calibration file."""
+        path = filedialog.askopenfilename(
+            title="Import Normarc ILS Config",
+            filetypes=[("Normarc CFG/LDA", "*.cfg *.lda *.LDA *.txt"),
+                       ("All", "*.*")])
+        if not path:
+            return
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        self._normarc_raw = raw
+        self._normarc_raw_text.delete("1.0", "end")
+        self._normarc_raw_text.insert("1.0", raw)
+        self._parse_normarc_cfg(raw)
+        self._log("[ILS] Normarc config imported: {0}".format(os.path.basename(path)))
+
+    def _parse_normarc_cfg(self, raw):
+        """Parse Normarc config lines and update LOC/GP calibration treeviews."""
+        loc_map = {key: (name, unit, default) for name, key, unit, default in NORMARC_LOC_CAL_PARAMS}
+        gp_map = {key: (name, unit, default) for name, key, unit, default in NORMARC_GP_CAL_PARAMS}
+        pat = re.compile(r'^(\w+)\s*=\s*([^;]+?)(?:\s*;.*)?$')
+        for line in raw.splitlines():
+            m = pat.match(line.strip())
+            if not m:
+                continue
+            param_key = m.group(1).strip().lower()
+            value = m.group(2).strip()
+            if param_key in loc_map and self._normarc_loc_tree.exists(param_key):
+                name, unit, default = loc_map[param_key]
+                self._normarc_loc_tree.item(param_key, values=(name, value, default, unit, ""))
+            if param_key in gp_map and self._normarc_gp_tree.exists(param_key):
+                name, unit, default = gp_map[param_key]
+                self._normarc_gp_tree.item(param_key, values=(name, value, default, unit, ""))
 
     def _tab_african(self, parent):
         self.runway_trees["african"] = self._build_runway_tree(parent, AFRICAN_RUNWAYS)
