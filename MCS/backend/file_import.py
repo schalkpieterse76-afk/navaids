@@ -8,7 +8,6 @@ Supports:
 
 import configparser
 import io
-import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,11 +52,6 @@ def parse_config_sys(content: str) -> dict:
 # .LDA parser  (Thales ATM LDA export – simplified text representation)
 # ---------------------------------------------------------------------------
 
-_LDA_RECORD_RE = re.compile(
-    r"^\s*(?P<record_type>[A-Z_]+)\s*\|\s*(?P<fields>.+)$"
-)
-_LDA_FIELD_RE = re.compile(r"(?P<key>[A-Z_]+)=(?P<value>[^|]+)")
-
 
 def parse_lda(content: str) -> list:
     """Parse a Thales ATM .LDA text export into a list of record dicts.
@@ -77,12 +71,23 @@ def parse_lda(content: str) -> list:
         line = line.strip()
         if not line or line.startswith(("#", ";")):
             continue
-        match = _LDA_RECORD_RE.match(line)
-        if not match:
+        # Split on pipe to get record type and fields – no complex regex needed
+        parts = line.split("|")
+        record_type = parts[0].strip()
+        # Validate record type: must be uppercase letters and underscores only
+        if not record_type or not all(c.isalpha() or c == "_" for c in record_type):
             continue
-        record = {"record_type": match.group("record_type")}
-        for field_match in _LDA_FIELD_RE.finditer(match.group("fields")):
-            record[field_match.group("key")] = field_match.group("value").strip()
+        record = {"record_type": record_type}
+        for part in parts[1:]:
+            part = part.strip()
+            if "=" not in part:
+                continue
+            eq_pos = part.index("=")
+            key = part[:eq_pos].strip()
+            value = part[eq_pos + 1:].strip()
+            # Validate key: uppercase letters and underscores only
+            if key and all(c.isalpha() or c == "_" for c in key):
+                record[key] = value
         records.append(record)
     return records
 

@@ -58,7 +58,12 @@ init_db(app)
 # ---------------------------------------------------------------------------
 
 
-def _json_or_400(required: list = None):
+def _tcp_error(exc: Exception, system_id: int):
+    """Log the real error but return a safe generic message to the client."""
+    logger.error("TCP error for system %d: %s", system_id, exc)
+    return jsonify({"error": "Remote connection failed"}), 502
+
+
     """Return request JSON or abort with 400."""
     data = request.get_json(silent=True) or {}
     if required:
@@ -218,7 +223,7 @@ def poll_system(system_id):
         db.session.commit()
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/systems/<int:system_id>/command", methods=["POST"])
@@ -229,7 +234,7 @@ def send_command(system_id):
         result = tcp_client.send_command(system.ip_address, system.tcp_port, data)
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/systems/<int:system_id>/set_frequency", methods=["POST"])
@@ -244,7 +249,7 @@ def set_frequency(system_id):
         db.session.commit()
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/systems/<int:system_id>/set_power", methods=["POST"])
@@ -259,7 +264,7 @@ def set_power(system_id):
         db.session.commit()
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/systems/<int:system_id>/set_mode", methods=["POST"])
@@ -274,7 +279,7 @@ def set_mode(system_id):
         db.session.commit()
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/systems/<int:system_id>/set_ident", methods=["POST"])
@@ -289,7 +294,7 @@ def set_ident(system_id):
         db.session.commit()
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/systems/<int:system_id>/reboot", methods=["POST"])
@@ -299,7 +304,7 @@ def reboot_system(system_id):
         result = tcp_client.reboot(system.ip_address, system.tcp_port, system_id)
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/systems/<int:system_id>/estop", methods=["POST"])
@@ -309,7 +314,7 @@ def estop_system(system_id):
         result = tcp_client.emergency_stop(system.ip_address, system.tcp_port, system_id)
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +345,7 @@ def fetch_alarms(system_id):
         db.session.commit()
         return jsonify(result)
     except ConnectionError as exc:
-        return jsonify({"error": str(exc)}), 502
+        return _tcp_error(exc, system_id)
 
 
 @app.route("/api/alarms/<int:alarm_id>/acknowledge", methods=["POST"])
