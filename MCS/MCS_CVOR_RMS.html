@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MCS CVOR Remote Management System</title>
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+/* =====================================================================
+   Thales ATM Dark Theme
+   ===================================================================== */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-dark:#0d1117;--bg-panel:#161b22;--bg-accent:#1f2937;
+  --fg-primary:#e6edf3;--fg-muted:#8b949e;
+  --blue:#388bfd;--green:#3fb950;--red:#f85149;--yellow:#d29922;--orange:#e3b341;
+  --border:#30363d;--radius:8px;
+}
+body{background:var(--bg-dark);color:var(--fg-primary);font-family:'Segoe UI',system-ui,sans-serif;display:flex;height:100vh;overflow:hidden}
+/* ---- Sidebar ---- */
+#sidebar{width:220px;min-width:220px;background:var(--bg-panel);border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px;padding:12px 8px;overflow-y:auto}
+.sidebar-logo{font-size:13px;font-weight:700;color:var(--blue);padding:8px 8px 16px;border-bottom:1px solid var(--border);margin-bottom:8px;letter-spacing:.5px}
+.nav-btn{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--fg-muted);transition:background .15s,color .15s;border:none;background:none;width:100%;text-align:left}
+.nav-btn:hover,.nav-btn.active{background:var(--bg-accent);color:var(--fg-primary)}
+/* ---- Main area ---- */
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+/* ---- Topbar ---- */
+#topbar{background:var(--bg-panel);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-size:13px}
+#topbar .title{font-weight:700;font-size:15px;color:var(--fg-primary)}
+#topbar .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot-green{background:var(--green)}
+.dot-red{background:var(--red)}
+.dot-yellow{background:var(--yellow)}
+/* ---- Content ---- */
+#content{flex:1;overflow-y:auto;padding:20px}
+/* ---- Cards / Grid ---- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.card{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:border-color .2s}
+.card:hover{border-color:var(--blue)}
+.card-title{font-size:14px;font-weight:600;margin-bottom:8px;color:var(--fg-primary)}
+.card-sub{font-size:12px;color:var(--fg-muted)}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-online{background:#1a3a2a;color:var(--green);border:1px solid var(--green)}
+.badge-offline{background:#3a1a1a;color:var(--red);border:1px solid var(--red)}
+.badge-unknown{background:#2a2a1a;color:var(--yellow);border:1px solid var(--yellow)}
+/* ---- Map ---- */
+#map-container{height:480px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);margin-bottom:20px}
+#map{height:100%;width:100%}
+/* ---- Buttons ---- */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);font-size:13px;cursor:pointer;border:none;font-weight:500;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-success{background:#1a3a2a;color:var(--green);border:1px solid var(--green)}
+.btn-danger{background:#3a1a1a;color:var(--red);border:1px solid var(--red)}
+.btn-secondary{background:var(--bg-accent);color:var(--fg-primary);border:1px solid var(--border)}
+.btn-sm{padding:4px 10px;font-size:12px}
+/* ---- Table ---- */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg-accent);color:var(--fg-muted);font-weight:600;padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+td{padding:10px 12px;border-top:1px solid var(--border);color:var(--fg-primary)}
+tr:hover td{background:var(--bg-accent)}
+/* ---- Modal ---- */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);padding:24px;min-width:420px;max-width:600px;max-height:80vh;overflow-y:auto}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:16px;color:var(--fg-primary)}
+/* ---- Form ---- */
+.form-group{margin-bottom:14px}
+label{display:block;font-size:12px;font-weight:600;color:var(--fg-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px}
+input,select,textarea{width:100%;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--fg-primary);padding:8px 10px;font-size:13px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--blue)}
+/* ---- Alarm severities ---- */
+.sev-critical{color:var(--red)}
+.sev-warning{color:var(--yellow)}
+.sev-info{color:var(--blue)}
+/* ---- Shelter SVG ---- */
+#shelter-svg{width:100%;max-width:700px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-panel)}
+/* ---- Toast ---- */
+#toast{position:fixed;bottom:24px;right:24px;background:var(--bg-accent);border:1px solid var(--border);border-radius:var(--radius);padding:12px 20px;font-size:13px;color:var(--fg-primary);z-index:2000;transition:opacity .3s;opacity:0;pointer-events:none}
+#toast.show{opacity:1}
+/* ---- File drop zone ---- */
+.dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:40px;text-align:center;color:var(--fg-muted);cursor:pointer;transition:border-color .2s}
+.dropzone.dragover{border-color:var(--blue);color:var(--fg-primary)}
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg-dark)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+/* ---- Section headings ---- */
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-header h2{font-size:18px;font-weight:700}
+/* ---- Leaflet dark tiles ---- */
+.leaflet-tile{filter:brightness(.7) saturate(.6) hue-rotate(200deg)}
+</style>
+</head>
+<body>
+
+<!-- ================================================================
+     SIDEBAR
+     ================================================================ -->
+<nav id="sidebar">
+  <div class="sidebar-logo">✈ MCS CVOR RMS<br><small style="color:var(--fg-muted);font-weight:400">SAAF · Thales ATM · v2.1</small></div>
+  <button class="nav-btn active" onclick="showSection('dashboard')">🗺️ Dashboard</button>
+  <button class="nav-btn" onclick="showSection('map')">🛰️ Map View</button>
+  <button class="nav-btn" onclick="showSection('bases')">🏛️ Bases</button>
+  <button class="nav-btn" onclick="showSection('systems')">📡 CVOR Systems</button>
+  <button class="nav-btn" onclick="showSection('remote')">🔌 Remote Control</button>
+  <button class="nav-btn" onclick="showSection('alarms')">🔔 Alarms</button>
+  <button class="nav-btn" onclick="showSection('shelter')">🏗️ Shelter Layout</button>
+  <button class="nav-btn" onclick="showSection('import')">📂 File Import</button>
+  <button class="nav-btn" onclick="showSection('export')">💾 Export</button>
+  <button class="nav-btn" onclick="showSection('settings')">⚙️ Settings</button>
+  <div style="margin-top:auto;padding-top:16px;border-top:1px solid var(--border)">
+    <div style="font-size:11px;color:var(--fg-muted);padding:4px 8px" id="backend-status-label">Backend: checking…</div>
+  </div>
+</nav>
+
+<!-- ================================================================
+     MAIN
+     ================================================================ -->
+<div id="main">
+  <div id="topbar">
+    <span class="title">MCS CVOR Remote Management System</span>
+    <span>
+      <span class="status-dot dot-green" id="api-dot"></span>
+      <span id="api-status-text" style="color:var(--fg-muted)">Connecting…</span>
+      &nbsp;&nbsp;
+      <button class="btn btn-secondary btn-sm" onclick="refreshAll()">⟳ Refresh</button>
+    </span>
+  </div>
+
+  <div id="content">
+
+    <!-- ============================================================ DASHBOARD -->
+    <div id="section-dashboard" class="section">
+      <div class="section-header"><h2>Dashboard</h2><button class="btn btn-primary btn-sm" onclick="showSection('bases')">Manage Bases →</button></div>
+      <div id="dashboard-grid" class="grid">
+        <div class="card"><div class="card-sub">Loading bases…</div></div>
+      </div>
+    </div>
+
+    <!-- ============================================================ MAP -->
+    <div id="section-map" class="section" style="display:none">
+      <div class="section-header"><h2>SA Map</h2></div>
+      <div id="map-container"><div id="map"></div></div>
+    </div>
+
+    <!-- ============================================================ BASES -->
+    <div id="section-bases" class="section" style="display:none">
+      <div class="section-header">
+        <h2>Air Force Bases</h2>
+        <button class="btn btn-primary btn-sm" onclick="openBaseModal()">+ Add Base</button>
+      </div>
+      <div class="table-wrap">
+        <table id="bases-table">
+          <thead><tr><th>ICAO</th><th>Name</th><th>Coordinates</th><th>CVOR Systems</th><th>Actions</th></tr></thead>
+          <tbody id="bases-tbody"><tr><td colspan="5">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============================================================ SYSTEMS -->
+    <div id="section-systems" class="section" style="display:none">
+      <div class="section-header">
+        <h2>CVOR Systems</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="sys-base-filter" class="btn btn-secondary btn-sm" onchange="loadSystems()" style="padding:4px 8px">
+            <option value="">All Bases</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="openSystemModal()">+ Add System</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="systems-table">
+          <thead><tr><th>Name</th><th>Base</th><th>IP Address</th><th>Port</th><th>Freq (MHz)</th><th>Status</th><th>Last Polled</th><th>Actions</th></tr></thead>
+          <tbody id="systems-tbody"><tr><td colspan="8">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============================================================ REMOTE CONTROL -->
+    <div id="section-remote" class="section" style="display:none">
+      <div class="section-header"><h2>Remote Control</h2></div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px">
+        <select id="remote-system-select" style="max-width:300px" onchange="onRemoteSystemChange()">
+          <option value="">Select CVOR System…</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="pingSystem()">🔌 Ping</button>
+        <button class="btn btn-secondary btn-sm" onclick="pollSystem()">📊 Poll Status</button>
+      </div>
+      <div id="remote-panel" style="display:none">
+        <div class="grid">
+          <!-- Frequency -->
+          <div class="card">
+            <div class="card-title">📻 Frequency</div>
+            <div class="form-group"><label>Frequency (MHz)</label><input type="number" id="r-freq" step="0.005" min="108" max="118" placeholder="116.300"/></div>
+            <button class="btn btn-primary btn-sm" onclick="sendSetFreq()">Set Frequency</button>
+          </div>
+          <!-- Power -->
+          <div class="card">
+            <div class="card-title">⚡ Power Level</div>
+            <div class="form-group"><label>Level</label>
+              <select id="r-power"><option>HIGH</option><option>LOW</option><option>STANDBY</option></select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="sendSetPower()">Set Power</button>
+          </div>
+          <!-- Mode -->
+          <div class="card">
+            <div class="card-title">🔄 Mode</div>
+            <div class="form-group"><label>Mode</label>
+              <select id="r-mode"><option>NORMAL</option><option>MONITOR</option><option>STANDBY</option></select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="sendSetMode()">Set Mode</button>
+          </div>
+          <!-- IDENT -->
+          <div class="card">
+            <div class="card-title">🔤 IDENT Code</div>
+            <div class="form-group"><label>IDENT (3 chars)</label><input type="text" id="r-ident" maxlength="3" placeholder="WKF"/></div>
+            <button class="btn btn-primary btn-sm" onclick="sendSetIdent()">Set IDENT</button>
+          </div>
+          <!-- Alarms -->
+          <div class="card">
+            <div class="card-title">🔔 Alarms</div>
+            <button class="btn btn-secondary btn-sm" onclick="fetchAlarms()">Fetch Alarms</button>
+            <div id="r-alarms-out" style="margin-top:8px;font-size:12px;color:var(--fg-muted)"></div>
+          </div>
+          <!-- Danger zone -->
+          <div class="card" style="border-color:var(--red)">
+            <div class="card-title" style="color:var(--red)">⚠️ Danger Zone</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+              <button class="btn btn-danger btn-sm" onclick="sendReboot()">🔁 Reboot</button>
+              <button class="btn btn-danger btn-sm" onclick="sendEStop()">🛑 E-STOP</button>
+            </div>
+          </div>
+        </div>
+        <!-- Raw response -->
+        <div style="margin-top:16px">
+          <div style="font-size:12px;color:var(--fg-muted);margin-bottom:4px">Last Response</div>
+          <pre id="remote-response" style="background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;color:var(--fg-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ ALARMS -->
+    <div id="section-alarms" class="section" style="display:none">
+      <div class="section-header">
+        <h2>Alarms</h2>
+        <select id="alarm-sys-filter" style="max-width:260px" onchange="loadAlarms()">
+          <option value="">All Systems</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>System</th><th>Code</th><th>Severity</th><th>Message</th><th>Raised</th><th>Ack</th><th>Actions</th></tr></thead>
+          <tbody id="alarms-tbody"><tr><td colspan="7">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============================================================ SHELTER -->
+    <div id="section-shelter" class="section" style="display:none">
+      <div class="section-header">
+        <h2>Shelter Layout</h2>
+        <select id="shelter-sys-select" style="max-width:260px" onchange="loadShelter()">
+          <option value="">Select System…</option>
+        </select>
+      </div>
+      <div id="shelter-content">
+        <!-- SVG diagram placeholder -->
+        <svg id="shelter-svg" viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="700" height="400" fill="#161b22" rx="8"/>
+          <text x="350" y="30" text-anchor="middle" fill="#8b949e" font-size="14" font-family="Segoe UI">CVOR Shelter – Select a system to view slots</text>
+          <!-- Rack outline -->
+          <rect x="60" y="50" width="580" height="330" fill="none" stroke="#30363d" stroke-width="2" rx="4"/>
+          <!-- Slot placeholders (20 slots) -->
+        </svg>
+        <div id="shelter-slots-grid" class="grid" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- ============================================================ IMPORT -->
+    <div id="section-import" class="section" style="display:none">
+      <div class="section-header"><h2>File Import</h2></div>
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+        <div style="font-size:36px;margin-bottom:8px">📂</div>
+        <div>Drop .ini, config.sys or .LDA files here, or click to browse</div>
+        <input type="file" id="file-input" accept=".ini,.sys,.lda,config.sys" style="display:none" onchange="handleFileSelect(event)"/>
+      </div>
+      <div id="import-result" style="margin-top:16px"></div>
+    </div>
+
+    <!-- ============================================================ EXPORT -->
+    <div id="section-export" class="section" style="display:none">
+      <div class="section-header"><h2>Export</h2></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="exportAll()">💾 Export Full Database (ZIP)</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="export-base-select" style="max-width:260px">
+            <option value="">Select Base…</option>
+          </select>
+          <button class="btn btn-secondary" onclick="exportBase()">📦 Export Base (ZIP)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ SETTINGS -->
+    <div id="section-settings" class="section" style="display:none">
+      <div class="section-header"><h2>Settings</h2></div>
+      <div class="card" style="max-width:500px">
+        <div class="card-title">Backend Connection</div>
+        <div class="form-group"><label>API Base URL</label><input type="text" id="api-url" value="http://127.0.0.1:5000"/></div>
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save & Reconnect</button>
+      </div>
+      <div class="card" style="max-width:500px;margin-top:16px">
+        <div class="card-title">Network Detection</div>
+        <button class="btn btn-secondary btn-sm" onclick="detectNetwork()">🔍 Detect Local Network</button>
+        <pre id="net-info" style="margin-top:10px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;color:var(--fg-muted)"></pre>
+      </div>
+    </div>
+
+  </div><!-- #content -->
+</div><!-- #main -->
+
+<!-- ================================================================
+     MODALS
+     ================================================================ -->
+<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title" id="modal-title">Modal</div>
+    <div id="modal-body"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px">
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="modal-confirm" onclick="modalConfirm()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- ================================================================
+     JAVASCRIPT
+     ================================================================ -->
+<script>
+// -----------------------------------------------------------------------
+// State
+// -----------------------------------------------------------------------
+let API = localStorage.getItem('mcs_api') || 'http://127.0.0.1:5000';
+let allBases = [];
+let allSystems = [];
+let leafletMap = null;
+let mapMarkers = [];
+let modalAction = null;
+
+// -----------------------------------------------------------------------
+// Utilities
+// -----------------------------------------------------------------------
+async function api(path, opts = {}) {
+  try {
+    const r = await fetch(API + path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    console.error('API error', path, e.message);
+    throw e;
+  }
+}
+
+function toast(msg, color = '#388bfd') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.borderColor = color;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function fmt(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString();
+}
+
+function statusBadge(status) {
+  const cls = status === 'ONLINE' ? 'badge-online' : status === 'OFFLINE' ? 'badge-offline' : 'badge-unknown';
+  return `<span class="badge ${cls}">${status || 'UNKNOWN'}</span>`;
+}
+
+function sevClass(sev) {
+  if (sev === 'CRITICAL') return 'sev-critical';
+  if (sev === 'WARNING') return 'sev-warning';
+  return 'sev-info';
+}
+
+// -----------------------------------------------------------------------
+// Navigation
+// -----------------------------------------------------------------------
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('section-' + id);
+  if (el) el.style.display = '';
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    if (b.textContent.toLowerCase().includes(id)) b.classList.add('active');
+  });
+  if (id === 'map') initMap();
+  if (id === 'dashboard') loadDashboard();
+  if (id === 'bases') loadBases();
+  if (id === 'systems') loadSystems();
+  if (id === 'remote') populateRemoteSelect();
+  if (id === 'alarms') loadAlarms();
+  if (id === 'shelter') populateShelterSelect();
+  if (id === 'export') populateExportSelect();
+}
+
+// -----------------------------------------------------------------------
+// Health check
+// -----------------------------------------------------------------------
+async function checkHealth() {
+  try {
+    const h = await api('/api/health');
+    document.getElementById('api-dot').className = 'status-dot dot-green';
+    document.getElementById('api-status-text').textContent = `Backend OK (v${h.version})`;
+    document.getElementById('backend-status-label').textContent = `Backend: OK v${h.version}`;
+  } catch {
+    document.getElementById('api-dot').className = 'status-dot dot-red';
+    document.getElementById('api-status-text').textContent = 'Backend Offline';
+    document.getElementById('backend-status-label').textContent = 'Backend: Offline';
+  }
+}
+
+// -----------------------------------------------------------------------
+// Dashboard
+// -----------------------------------------------------------------------
+async function loadDashboard() {
+  const grid = document.getElementById('dashboard-grid');
+  try {
+    allBases = await api('/api/bases');
+    grid.innerHTML = allBases.map(b => `
+      <div class="card" onclick="showSection('bases')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div class="card-title">${b.name}</div>
+          <span style="font-size:11px;font-weight:700;color:var(--blue)">${b.icao}</span>
+        </div>
+        <div class="card-sub" style="margin-bottom:10px">📍 ${b.latitude.toFixed(4)}, ${b.longitude.toFixed(4)}</div>
+        <div style="font-size:12px;color:var(--fg-muted)">📡 ${b.cvor_count} CVOR System(s)</div>
+      </div>
+    `).join('');
+  } catch {
+    grid.innerHTML = '<div class="card"><div class="card-sub">Cannot reach backend. Running in standalone mode.</div></div>';
+  }
+}
+
+// -----------------------------------------------------------------------
+// Map
+// -----------------------------------------------------------------------
+function initMap() {
+  if (leafletMap) { leafletMap.invalidateSize(); return; }
+  leafletMap = L.map('map', { center: [-29, 25], zoom: 6 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 18,
+  }).addTo(leafletMap);
+  renderMapMarkers();
+}
+
+function renderMapMarkers() {
+  if (!leafletMap) return;
+  mapMarkers.forEach(m => m.remove());
+  mapMarkers = [];
+  allBases.forEach(b => {
+    const color = '#388bfd';
+    const icon = L.divIcon({
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 8px ${color}"></div>`,
+      className: '',
+      iconAnchor: [7, 7],
+    });
+    const m = L.marker([b.latitude, b.longitude], { icon })
+      .bindPopup(`<b>${b.name}</b> (${b.icao})<br>📡 ${b.cvor_count} CVOR system(s)`)
+      .addTo(leafletMap);
+    mapMarkers.push(m);
+  });
+}
+
+// -----------------------------------------------------------------------
+// Bases CRUD
+// -----------------------------------------------------------------------
+async function loadBases() {
+  try {
+    allBases = await api('/api/bases');
+    renderBasesTable();
+  } catch { document.getElementById('bases-tbody').innerHTML = '<tr><td colspan="5">Backend offline</td></tr>'; }
+}
+
+function renderBasesTable() {
+  const tbody = document.getElementById('bases-tbody');
+  if (!allBases.length) { tbody.innerHTML = '<tr><td colspan="5">No bases found.</td></tr>'; return; }
+  tbody.innerHTML = allBases.map(b => `
+    <tr>
+      <td><b>${b.icao}</b></td>
+      <td>${b.name}</td>
+      <td>${b.latitude.toFixed(4)}, ${b.longitude.toFixed(4)}</td>
+      <td>${b.cvor_count}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="openBaseModal(${b.id})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteBase(${b.id})">🗑️</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openBaseModal(id) {
+  const base = id ? allBases.find(b => b.id === id) : null;
+  document.getElementById('modal-title').textContent = base ? `Edit Base: ${base.icao}` : 'Add Base';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="form-group"><label>Name</label><input id="m-name" value="${base ? base.name : ''}"/></div>
+    <div class="form-group"><label>ICAO (4 chars)</label><input id="m-icao" maxlength="4" value="${base ? base.icao : ''}"/></div>
+    <div class="form-group"><label>Latitude</label><input id="m-lat" type="number" step="0.0001" value="${base ? base.latitude : ''}"/></div>
+    <div class="form-group"><label>Longitude</label><input id="m-lon" type="number" step="0.0001" value="${base ? base.longitude : ''}"/></div>
+    <div class="form-group"><label>Description</label><textarea id="m-desc" rows="2">${base ? base.description : ''}</textarea></div>
+  `;
+  modalAction = async () => {
+    const payload = {
+      name: document.getElementById('m-name').value,
+      icao: document.getElementById('m-icao').value.toUpperCase(),
+      latitude: parseFloat(document.getElementById('m-lat').value),
+      longitude: parseFloat(document.getElementById('m-lon').value),
+      description: document.getElementById('m-desc').value,
+    };
+    if (base) {
+      await api(`/api/bases/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      toast('Base updated ✔');
+    } else {
+      await api('/api/bases', { method: 'POST', body: JSON.stringify(payload) });
+      toast('Base created ✔');
+    }
+    await loadBases();
+  };
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+async function deleteBase(id) {
+  if (!confirm('Delete this base and all its CVOR systems?')) return;
+  await api(`/api/bases/${id}`, { method: 'DELETE' });
+  toast('Base deleted', '#f85149');
+  await loadBases();
+}
+
+// -----------------------------------------------------------------------
+// Systems CRUD
+// -----------------------------------------------------------------------
+async function loadSystems() {
+  const baseFilter = document.getElementById('sys-base-filter').value;
+  // Populate base filter
+  if (allBases.length === 0) allBases = await api('/api/bases').catch(() => []);
+  const filterEl = document.getElementById('sys-base-filter');
+  if (filterEl.options.length === 1) {
+    allBases.forEach(b => {
+      const o = document.createElement('option');
+      o.value = b.id; o.textContent = `${b.icao} – ${b.name}`;
+      filterEl.appendChild(o);
+    });
+  }
+  try {
+    allSystems = [];
+    if (baseFilter) {
+      allSystems = await api(`/api/bases/${baseFilter}/systems`);
+    } else {
+      for (const b of allBases) {
+        const sys = await api(`/api/bases/${b.id}/systems`).catch(() => []);
+        sys.forEach(s => { s._baseName = b.name; s._baseIcao = b.icao; });
+        allSystems.push(...sys);
+      }
+    }
+    renderSystemsTable();
+  } catch { document.getElementById('systems-tbody').innerHTML = '<tr><td colspan="8">Error loading systems.</td></tr>'; }
+}
+
+function renderSystemsTable() {
+  const tbody = document.getElementById('systems-tbody');
+  if (!allSystems.length) { tbody.innerHTML = '<tr><td colspan="8">No CVOR systems found.</td></tr>'; return; }
+  tbody.innerHTML = allSystems.map(s => `
+    <tr>
+      <td><b>${s.name}</b></td>
+      <td>${s._baseIcao || ''} ${s._baseName || ''}</td>
+      <td>${s.ip_address}</td>
+      <td>${s.tcp_port}</td>
+      <td>${s.frequency ? s.frequency.toFixed(3) : '—'}</td>
+      <td>${statusBadge(s.status)}</td>
+      <td>${fmt(s.last_polled)}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="openSystemModal(${s.id})">✏️</button>
+        <button class="btn btn-secondary btn-sm" onclick="pingOne(${s.id})">🔌</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSystem(${s.id})">🗑️</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openSystemModal(id) {
+  const sys = id ? allSystems.find(s => s.id === id) : null;
+  document.getElementById('modal-title').textContent = sys ? `Edit: ${sys.name}` : 'Add CVOR System';
+  document.getElementById('modal-body').innerHTML = `
+    ${!sys ? `<div class="form-group"><label>Base</label><select id="m-base-id">${allBases.map(b => `<option value="${b.id}">${b.icao} – ${b.name}</option>`).join('')}</select></div>` : ''}
+    <div class="form-group"><label>Name</label><input id="m-sname" value="${sys ? sys.name : ''}"/></div>
+    <div class="form-group"><label>IP Address</label><input id="m-ip" value="${sys ? sys.ip_address : ''}"/></div>
+    <div class="form-group"><label>Subnet Mask</label><input id="m-subnet" value="${sys ? sys.subnet_mask : '255.255.255.0'}"/></div>
+    <div class="form-group"><label>Gateway</label><input id="m-gw" value="${sys ? sys.gateway : ''}"/></div>
+    <div class="form-group"><label>TCP Port</label><input id="m-port" type="number" value="${sys ? sys.tcp_port : 4000}"/></div>
+    <div class="form-group"><label>Frequency (MHz)</label><input id="m-freq" type="number" step="0.005" value="${sys ? sys.frequency : ''}"/></div>
+    <div class="form-group"><label>IDENT</label><input id="m-ident" maxlength="3" value="${sys ? sys.ident : ''}"/></div>
+  `;
+  modalAction = async () => {
+    const payload = {
+      name: document.getElementById('m-sname').value,
+      ip_address: document.getElementById('m-ip').value,
+      subnet_mask: document.getElementById('m-subnet').value,
+      gateway: document.getElementById('m-gw').value,
+      tcp_port: parseInt(document.getElementById('m-port').value),
+      frequency: parseFloat(document.getElementById('m-freq').value) || 0,
+      ident: document.getElementById('m-ident').value.toUpperCase(),
+    };
+    if (sys) {
+      await api(`/api/systems/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      toast('System updated ✔');
+    } else {
+      const baseId = document.getElementById('m-base-id').value;
+      await api(`/api/bases/${baseId}/systems`, { method: 'POST', body: JSON.stringify(payload) });
+      toast('System created ✔');
+    }
+    await loadSystems();
+  };
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+async function deleteSystem(id) {
+  if (!confirm('Delete this CVOR system?')) return;
+  await api(`/api/systems/${id}`, { method: 'DELETE' });
+  toast('System deleted', '#f85149');
+  await loadSystems();
+}
+
+async function pingOne(id) {
+  const r = await api(`/api/systems/${id}/ping`, { method: 'POST' }).catch(e => ({ reachable: false, error: e.message }));
+  toast(r.reachable ? '✔ Online' : '✗ Offline', r.reachable ? '#3fb950' : '#f85149');
+  await loadSystems();
+}
+
+// -----------------------------------------------------------------------
+// Remote control
+// -----------------------------------------------------------------------
+function populateRemoteSelect() {
+  const sel = document.getElementById('remote-system-select');
+  sel.innerHTML = '<option value="">Select CVOR System…</option>' +
+    allSystems.map(s => `<option value="${s.id}">${s._baseIcao || ''} – ${s.name} (${s.ip_address})</option>`).join('');
+}
+
+function onRemoteSystemChange() {
+  const id = document.getElementById('remote-system-select').value;
+  document.getElementById('remote-panel').style.display = id ? '' : 'none';
+  if (id) {
+    const sys = allSystems.find(s => s.id == id);
+    if (sys) {
+      document.getElementById('r-freq').value = sys.frequency || '';
+      document.getElementById('r-power').value = sys.power_level || 'HIGH';
+      document.getElementById('r-mode').value = sys.mode || 'NORMAL';
+      document.getElementById('r-ident').value = sys.ident || '';
+    }
+  }
+}
+
+function remoteId() { return document.getElementById('remote-system-select').value; }
+
+function showResponse(data) {
+  document.getElementById('remote-response').textContent = JSON.stringify(data, null, 2);
+}
+
+async function pingSystem() {
+  const id = remoteId(); if (!id) return toast('Select a system first');
+  const r = await api(`/api/systems/${id}/ping`, { method: 'POST' }).catch(e => ({ error: e.message }));
+  showResponse(r); toast(r.reachable ? '✔ Online' : '✗ Offline', r.reachable ? '#3fb950' : '#f85149');
+}
+async function pollSystem() {
+  const id = remoteId(); if (!id) return toast('Select a system first');
+  const r = await api(`/api/systems/${id}/poll`, { method: 'POST' }).catch(e => ({ error: e.message }));
+  showResponse(r);
+}
+async function sendSetFreq() {
+  const id = remoteId(); if (!id) return;
+  const r = await api(`/api/systems/${id}/set_frequency`, { method: 'POST', body: JSON.stringify({ frequency: parseFloat(document.getElementById('r-freq').value) }) }).catch(e => ({ error: e.message }));
+  showResponse(r); toast('Frequency command sent');
+}
+async function sendSetPower() {
+  const id = remoteId(); if (!id) return;
+  const r = await api(`/api/systems/${id}/set_power`, { method: 'POST', body: JSON.stringify({ level: document.getElementById('r-power').value }) }).catch(e => ({ error: e.message }));
+  showResponse(r); toast('Power command sent');
+}
+async function sendSetMode() {
+  const id = remoteId(); if (!id) return;
+  const r = await api(`/api/systems/${id}/set_mode`, { method: 'POST', body: JSON.stringify({ mode: document.getElementById('r-mode').value }) }).catch(e => ({ error: e.message }));
+  showResponse(r); toast('Mode command sent');
+}
+async function sendSetIdent() {
+  const id = remoteId(); if (!id) return;
+  const r = await api(`/api/systems/${id}/set_ident`, { method: 'POST', body: JSON.stringify({ ident: document.getElementById('r-ident').value.toUpperCase() }) }).catch(e => ({ error: e.message }));
+  showResponse(r); toast('IDENT command sent');
+}
+async function fetchAlarms() {
+  const id = remoteId(); if (!id) return;
+  const r = await api(`/api/systems/${id}/alarms/fetch`, { method: 'POST' }).catch(e => ({ error: e.message }));
+  showResponse(r);
+  document.getElementById('r-alarms-out').textContent = r.error ? r.error : `Fetched ${(r.alarms||[]).length} alarm(s)`;
+}
+async function sendReboot() {
+  const id = remoteId(); if (!id) return;
+  if (!confirm('Send REBOOT command?')) return;
+  const r = await api(`/api/systems/${id}/reboot`, { method: 'POST' }).catch(e => ({ error: e.message }));
+  showResponse(r); toast('Reboot command sent', '#d29922');
+}
+async function sendEStop() {
+  const id = remoteId(); if (!id) return;
+  if (!confirm('Send E-STOP? This will immediately shut down the CVOR transmitter.')) return;
+  const r = await api(`/api/systems/${id}/estop`, { method: 'POST' }).catch(e => ({ error: e.message }));
+  showResponse(r); toast('E-STOP sent', '#f85149');
+}
+
+// -----------------------------------------------------------------------
+// Alarms
+// -----------------------------------------------------------------------
+async function loadAlarms() {
+  const sysId = document.getElementById('alarm-sys-filter').value;
+  // Populate filter
+  if (document.getElementById('alarm-sys-filter').options.length === 1) {
+    allSystems.forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.id; o.textContent = `${s._baseIcao || ''} – ${s.name}`;
+      document.getElementById('alarm-sys-filter').appendChild(o);
+    });
+  }
+  const tbody = document.getElementById('alarms-tbody');
+  try {
+    let alarms = [];
+    if (sysId) {
+      alarms = await api(`/api/systems/${sysId}/alarms`);
+    } else {
+      for (const s of allSystems) {
+        const a = await api(`/api/systems/${s.id}/alarms`).catch(() => []);
+        a.forEach(x => { x._sysName = s.name; x._baseIcao = s._baseIcao; });
+        alarms.push(...a);
+      }
+    }
+    if (!alarms.length) { tbody.innerHTML = '<tr><td colspan="7">No alarms.</td></tr>'; return; }
+    tbody.innerHTML = alarms.map(a => `
+      <tr>
+        <td>${a._baseIcao || ''} ${a._sysName || ''}</td>
+        <td>${a.code}</td>
+        <td><span class="${sevClass(a.severity)}">${a.severity}</span></td>
+        <td>${a.message}</td>
+        <td>${fmt(a.raised_at)}</td>
+        <td>${a.acknowledged ? '✔' : '—'}</td>
+        <td>${!a.acknowledged ? `<button class="btn btn-secondary btn-sm" onclick="ackAlarm(${a.id})">Ack</button>` : ''}</td>
+      </tr>
+    `).join('');
+  } catch { tbody.innerHTML = '<tr><td colspan="7">Error loading alarms.</td></tr>'; }
+}
+
+async function ackAlarm(id) {
+  await api(`/api/alarms/${id}/acknowledge`, { method: 'POST' });
+  toast('Alarm acknowledged ✔');
+  await loadAlarms();
+}
+
+// -----------------------------------------------------------------------
+// Shelter
+// -----------------------------------------------------------------------
+function populateShelterSelect() {
+  const sel = document.getElementById('shelter-sys-select');
+  sel.innerHTML = '<option value="">Select System…</option>' +
+    allSystems.map(s => `<option value="${s.id}">${s._baseIcao || ''} – ${s.name}</option>`).join('');
+}
+
+async function loadShelter() {
+  const id = document.getElementById('shelter-sys-select').value;
+  if (!id) return;
+  const slots = await api(`/api/systems/${id}/shelter`).catch(() => []);
+  renderShelterSVG(slots);
+  const grid = document.getElementById('shelter-slots-grid');
+  if (!slots.length) {
+    grid.innerHTML = '<div class="card card-sub">No equipment slots recorded. <button class="btn btn-primary btn-sm" onclick="addShelterSlot()">+ Add Slot</button></div>';
+    return;
+  }
+  grid.innerHTML = slots.map(sl => `
+    <div class="card">
+      <div class="card-title">Slot #${sl.slot_number}</div>
+      <div class="card-sub">${sl.equipment_type || '(empty)'}</div>
+      ${sl.serial_number ? `<div class="card-sub">S/N: ${sl.serial_number}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function renderShelterSVG(slots) {
+  const svg = document.getElementById('shelter-svg');
+  const existing = svg.querySelectorAll('.slot-rect');
+  existing.forEach(e => e.remove());
+  const cols = 5;
+  slots.forEach((sl, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = 80 + col * 115;
+    const y = 60 + row * 80;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.classList.add('slot-rect');
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', x); rect.setAttribute('y', y);
+    rect.setAttribute('width', 100); rect.setAttribute('height', 60);
+    rect.setAttribute('rx', 4);
+    rect.setAttribute('fill', '#1f2937'); rect.setAttribute('stroke', '#388bfd'); rect.setAttribute('stroke-width', 1);
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', x + 50); text.setAttribute('y', y + 20);
+    text.setAttribute('text-anchor', 'middle'); text.setAttribute('fill', '#e6edf3'); text.setAttribute('font-size', 11);
+    text.textContent = `#${sl.slot_number}`;
+    const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    sub.setAttribute('x', x + 50); sub.setAttribute('y', y + 38);
+    sub.setAttribute('text-anchor', 'middle'); sub.setAttribute('fill', '#8b949e'); sub.setAttribute('font-size', 9);
+    sub.textContent = (sl.equipment_type || '').substring(0, 14);
+    g.appendChild(rect); g.appendChild(text); g.appendChild(sub);
+    svg.appendChild(g);
+  });
+}
+
+// -----------------------------------------------------------------------
+// File Import
+// -----------------------------------------------------------------------
+const dropzone = document.getElementById('dropzone');
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); });
+
+function handleFileSelect(e) { handleFiles(e.target.files); }
+
+async function handleFiles(files) {
+  for (const file of files) {
+    const text = await file.text();
+    let parsed;
+    try {
+      // Try backend import endpoint
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch(API + '/api/import', { method: 'POST', body: fd });
+      parsed = await r.json();
+    } catch {
+      // Fallback: parse client-side
+      parsed = parseFileClientSide(file.name, text);
+    }
+    showImportResult(file.name, parsed);
+  }
+}
+
+function parseFileClientSide(name, text) {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.ini')) return parseIni(text);
+  if (lower.endsWith('.lda')) return parseLda(text);
+  return parseConfigSys(text);
+}
+
+function parseIni(text) {
+  const result = {}; let section = '__default__';
+  text.split('\n').forEach(line => {
+    line = line.trim();
+    if (line.startsWith('[') && line.endsWith(']')) { section = line.slice(1, -1); result[section] = {}; }
+    else if (line.includes('=') && !line.startsWith(';') && !line.startsWith('#')) {
+      const [k, ...v] = line.split('=');
+      (result[section] = result[section] || {})[k.trim()] = v.join('=').trim();
+    }
+  });
+  return result;
+}
+
+function parseConfigSys(text) {
+  const result = {};
+  text.split('\n').forEach(line => {
+    line = line.trim();
+    if (!line || line.startsWith('#') || line.startsWith(';')) return;
+    if (line.includes('=')) { const [k, ...v] = line.split('='); result[k.trim().toUpperCase()] = v.join('=').trim(); }
+  });
+  return result;
+}
+
+function parseLda(text) {
+  const records = [];
+  text.split('\n').forEach(line => {
+    line = line.trim();
+    if (!line || line.startsWith('#')) return;
+    const parts = line.split('|');
+    if (parts.length < 1) return;
+    const rec = { record_type: parts[0].trim() };
+    parts.slice(1).forEach(p => { const eq = p.indexOf('='); if (eq > 0) rec[p.slice(0, eq).trim()] = p.slice(eq + 1).trim(); });
+    records.push(rec);
+  });
+  return records;
+}
+
+function showImportResult(name, data) {
+  const el = document.getElementById('import-result');
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title">📂 ${name}</div>
+      <pre style="background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;color:var(--fg-muted);white-space:pre-wrap;max-height:400px;overflow-y:auto">${JSON.stringify(data, null, 2)}</pre>
+    </div>
+  `;
+}
+
+// -----------------------------------------------------------------------
+// Export
+// -----------------------------------------------------------------------
+function populateExportSelect() {
+  const sel = document.getElementById('export-base-select');
+  sel.innerHTML = '<option value="">Select Base…</option>' +
+    allBases.map(b => `<option value="${b.id}">${b.icao} – ${b.name}</option>`).join('');
+}
+
+function exportAll() { window.location.href = API + '/api/export'; }
+
+function exportBase() {
+  const id = document.getElementById('export-base-select').value;
+  if (!id) { toast('Select a base first', '#d29922'); return; }
+  window.location.href = API + `/api/export/base/${id}`;
+}
+
+// -----------------------------------------------------------------------
+// Settings
+// -----------------------------------------------------------------------
+function saveSettings() {
+  API = document.getElementById('api-url').value.replace(/\/$/, '');
+  localStorage.setItem('mcs_api', API);
+  toast('Settings saved. Reconnecting…');
+  checkHealth();
+}
+
+async function detectNetwork() {
+  const r = await api('/api/network').catch(e => ({ error: e.message }));
+  document.getElementById('net-info').textContent = JSON.stringify(r, null, 2);
+}
+
+// -----------------------------------------------------------------------
+// Modal
+// -----------------------------------------------------------------------
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').style.display = 'none';
+}
+async function modalConfirm() {
+  if (!modalAction) return;
+  try {
+    await modalAction();
+    document.getElementById('modal-overlay').style.display = 'none';
+  } catch (e) { toast('Error: ' + e.message, '#f85149'); }
+}
+
+// -----------------------------------------------------------------------
+// Refresh all
+// -----------------------------------------------------------------------
+async function refreshAll() {
+  await checkHealth();
+  await loadDashboard();
+}
+
+// -----------------------------------------------------------------------
+// Boot
+// -----------------------------------------------------------------------
+document.getElementById('api-url').value = API;
+checkHealth();
+loadDashboard();
+// Poll health every 30s
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
