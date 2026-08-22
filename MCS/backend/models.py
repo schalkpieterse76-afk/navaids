@@ -1,6 +1,6 @@
 """SQLAlchemy database models for MCS CVOR Remote Management System."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
@@ -16,8 +16,8 @@ class Base(db.Model):
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     description = db.Column(db.Text, default="")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     cvor_systems = db.relationship("CVORSystem", back_populates="base", cascade="all, delete-orphan")
 
@@ -52,8 +52,8 @@ class CVORSystem(db.Model):
     ident = db.Column(db.String(8), default="")
     status = db.Column(db.String(16), default="UNKNOWN")
     last_polled = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     base = db.relationship("Base", back_populates="cvor_systems")
     alarms = db.relationship("Alarm", back_populates="cvor_system", cascade="all, delete-orphan")
@@ -89,7 +89,7 @@ class Alarm(db.Model):
     severity = db.Column(db.String(16), default="WARNING")  # INFO, WARNING, CRITICAL
     message = db.Column(db.Text, default="")
     acknowledged = db.Column(db.Boolean, default=False)
-    raised_at = db.Column(db.DateTime, default=datetime.utcnow)
+    raised_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     acknowledged_at = db.Column(db.DateTime, nullable=True)
 
     cvor_system = db.relationship("CVORSystem", back_populates="alarms")

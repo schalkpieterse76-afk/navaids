@@ -16,7 +16,7 @@ import io
 import zipfile
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request, send_file, abort
 from flask_cors import CORS
@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["http://127.0.0.1:5000", "http://localhost:5000", "null"])
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -111,7 +111,7 @@ def update_base(base_id):
             if field in ("latitude", "longitude"):
                 value = float(value)
             setattr(base, field, value)
-    base.updated_at = datetime.utcnow()
+    base.updated_at = datetime.now(timezone.utc)
     db.session.commit()
     return jsonify(base.to_dict())
 
@@ -127,6 +127,12 @@ def delete_base(base_id):
 # ---------------------------------------------------------------------------
 # CVOR system endpoints
 # ---------------------------------------------------------------------------
+
+@app.route("/api/systems", methods=["GET"])
+def list_all_systems():
+    systems = CVORSystem.query.all()
+    return jsonify([s.to_dict() for s in systems])
+
 
 @app.route("/api/bases/<int:base_id>/systems", methods=["GET"])
 def list_systems(base_id):
@@ -175,7 +181,7 @@ def update_system(system_id):
             if field == "frequency":
                 value = float(value)
             setattr(system, field, value)
-    system.updated_at = datetime.utcnow()
+    system.updated_at = datetime.now(timezone.utc)
     db.session.commit()
     return jsonify(system.to_dict())
 
@@ -197,7 +203,7 @@ def ping_system(system_id):
     system = CVORSystem.query.get_or_404(system_id)
     reachable = tcp_client.ping(system.ip_address, system.tcp_port)
     system.status = "ONLINE" if reachable else "OFFLINE"
-    system.last_polled = datetime.utcnow()
+    system.last_polled = datetime.now(timezone.utc)
     db.session.commit()
     return jsonify({"reachable": reachable, "status": system.status})
 
@@ -208,7 +214,7 @@ def poll_system(system_id):
     try:
         result = tcp_client.poll_status(system.ip_address, system.tcp_port, system_id)
         system.status = result.get("status", "UNKNOWN")
-        system.last_polled = datetime.utcnow()
+        system.last_polled = datetime.now(timezone.utc)
         db.session.commit()
         return jsonify(result)
     except ConnectionError as exc:
@@ -341,7 +347,7 @@ def fetch_alarms(system_id):
 def acknowledge_alarm(alarm_id):
     alarm = Alarm.query.get_or_404(alarm_id)
     alarm.acknowledged = True
-    alarm.acknowledged_at = datetime.utcnow()
+    alarm.acknowledged_at = datetime.now(timezone.utc)
     db.session.commit()
     return jsonify(alarm.to_dict())
 

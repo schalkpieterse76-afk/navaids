@@ -34,6 +34,17 @@ def _unframe(data: bytes) -> dict:
     return json.loads(body.decode("utf-8"))
 
 
+def _recv_exact(sock: socket.socket, n: int) -> bytes:
+    """Read exactly n bytes from sock, handling partial reads."""
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError("Connection closed before all bytes were received")
+        buf += chunk
+    return buf
+
+
 def send_command(ip: str, port: int, command: dict, timeout: float = DEFAULT_TIMEOUT) -> dict:
     """Open a TCP connection, send a framed command and return the decoded response.
 
@@ -52,10 +63,16 @@ def send_command(ip: str, port: int, command: dict, timeout: float = DEFAULT_TIM
     try:
         with socket.create_connection((ip, port), timeout=timeout) as sock:
             sock.sendall(_frame(command))
-            # Read response – up to 4096 bytes; real implementation would
-            # handle chunked reads based on the length field.
-            data = sock.recv(4096)
-        return _unframe(data)
+            # Read framed response: STX (1) + length (2) = 3 header bytes
+            header = _recv_exact(sock, 3)
+            if header[0] != STX:
+                raise ValueError("Missing STX byte in response header")
+            body_len = struct.unpack(">H", header[1:3])[0]
+            # Read body + ETX
+            body = _recv_exact(sock, body_len + 1)
+            if body[-1] != ETX:
+                raise ValueError("Missing ETX byte at end of response")
+            return json.loads(body[:-1].decode("utf-8"))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         logger.error("TCP command to %s:%d failed: %s", ip, port, exc)
         raise ConnectionError(str(exc)) from exc

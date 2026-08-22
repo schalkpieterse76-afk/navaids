@@ -567,14 +567,20 @@ async function loadSystems() {
     allSystems = [];
     if (baseFilter) {
       allSystems = await api(`/api/bases/${baseFilter}/systems`);
-    } else {
-      for (const b of allBases) {
-        const sys = await api(`/api/bases/${b.id}/systems`).catch(() => []);
-        sys.forEach(s => { s._baseName = b.name; s._baseIcao = b.icao; });
-        allSystems.push(...sys);
-      }
-    }
-    renderSystemsTable();
+    const b = allBases.find(x => x.id == baseFilter);
+    allSystems.forEach(s => { s._baseName = b ? b.name : ''; s._baseIcao = b ? b.icao : ''; });
+  } else {
+    allSystems = await api('/api/systems');
+    // Annotate with base info from the already-loaded allBases
+    const baseMap = {};
+    allBases.forEach(b => { baseMap[b.id] = b; });
+    allSystems.forEach(s => {
+      const b = baseMap[s.base_id] || {};
+      s._baseName = b.name || '';
+      s._baseIcao = b.icao || '';
+    });
+  }
+  renderSystemsTable();
   } catch { document.getElementById('systems-tbody').innerHTML = '<tr><td colspan="8">Error loading systems.</td></tr>'; }
 }
 
@@ -744,13 +750,20 @@ async function loadAlarms() {
     let alarms = [];
     if (sysId) {
       alarms = await api(`/api/systems/${sysId}/alarms`);
-    } else {
-      for (const s of allSystems) {
-        const a = await api(`/api/systems/${s.id}/alarms`).catch(() => []);
-        a.forEach(x => { x._sysName = s.name; x._baseIcao = s._baseIcao; });
-        alarms.push(...a);
-      }
-    }
+    const sys = allSystems.find(s => s.id == sysId);
+    alarms.forEach(a => { a._sysName = sys ? sys.name : ''; a._baseIcao = sys ? sys._baseIcao : ''; });
+  } else {
+    // Fetch alarms for all systems in parallel
+    const results = await Promise.all(
+      allSystems.map(s =>
+        api(`/api/systems/${s.id}/alarms`).then(a => {
+          a.forEach(x => { x._sysName = s.name; x._baseIcao = s._baseIcao || ''; });
+          return a;
+        }).catch(() => [])
+      )
+    );
+    alarms = results.flat();
+  }
     if (!alarms.length) { tbody.innerHTML = '<tr><td colspan="7">No alarms.</td></tr>'; return; }
     tbody.innerHTML = alarms.map(a => `
       <tr>
@@ -904,12 +917,18 @@ function parseLda(text) {
 
 function showImportResult(name, data) {
   const el = document.getElementById('import-result');
-  el.innerHTML = `
-    <div class="card">
-      <div class="card-title">📂 ${name}</div>
-      <pre style="background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;color:var(--fg-muted);white-space:pre-wrap;max-height:400px;overflow-y:auto">${JSON.stringify(data, null, 2)}</pre>
-    </div>
-  `;
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;color:var(--fg-muted);white-space:pre-wrap;max-height:400px;overflow-y:auto';
+  pre.textContent = JSON.stringify(data, null, 2);
+  const titleEl = document.createElement('div');
+  titleEl.className = 'card-title';
+  titleEl.textContent = '📂 ' + name;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.appendChild(titleEl);
+  card.appendChild(pre);
+  el.innerHTML = '';
+  el.appendChild(card);
 }
 
 // -----------------------------------------------------------------------
