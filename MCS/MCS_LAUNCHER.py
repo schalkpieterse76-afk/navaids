@@ -311,11 +311,12 @@ function tick(){const n=new Date;document.getElementById('clock').textContent='U
 setInterval(tick,1000);tick();
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-function showTab(name){
+function showTab(name,btn){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
-  event.target.classList.add('active');
+  const target=btn||(typeof event!=='undefined'&&event&&event.target&&event.target.matches('nav button')?event.target:null);
+  if(target)target.classList.add('active');
   if(name==='map'){setTimeout(()=>{if(map)map.invalidateSize();else initMap();},100);}
 }
 
@@ -624,8 +625,8 @@ function renderSidebarFilters(){
 
 function flyToBase(id){
   const b=allBases.find(x=>x.id===id);if(!b)return;
-  showTab('map');document.querySelectorAll('nav button')[3].classList.add('active');
-  document.querySelectorAll('nav button').forEach((btn,i)=>{if(i!==3)btn.classList.remove('active');});
+  const mapBtn=document.querySelectorAll('nav button')[3];
+  showTab('map',mapBtn);
   setTimeout(()=>{if(map)map.flyTo([b.lat,b.lon],10,{duration:1.5});},200);
 }
 
@@ -873,7 +874,7 @@ STX = 0x02
 ETX = 0x03
 
 
-def _frame(payload: bytes) -> bytes:
+def _frame(payload: 'dict | bytes') -> bytes:
     data = json.dumps(payload).encode() if isinstance(payload, dict) else payload
     length = struct.pack('>H', len(data))
     return bytes([STX]) + length + data + bytes([ETX])
@@ -1264,7 +1265,7 @@ def network_detect():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+    app.run(host='127.0.0.1', port=8080, debug=False, use_reloader=False)
 """
 
 # ── BOOTSTRAP ─────────────────────────────────────────────────────────────────
@@ -1289,9 +1290,19 @@ REQUIRED_PACKAGES = [
 
 
 def install_deps(update_cb=None):
-    """Auto-install all required pip packages."""
+    """Auto-install missing pip packages (skips already-importable ones)."""
+    import importlib.util
+    # Map pip package name -> importable module name
+    PKG_TO_MODULE = {
+        'flask': 'flask', 'flask-cors': 'flask_cors', 'flask-sqlalchemy': 'flask_sqlalchemy',
+        'netifaces': 'netifaces', 'pillow': 'PIL', 'pystray': 'pystray',
+        'tkinterweb': 'tkinterweb', 'requests': 'requests', 'psutil': 'psutil',
+    }
     failed = []
     for pkg in REQUIRED_PACKAGES:
+        module_name = PKG_TO_MODULE.get(pkg, pkg.replace('-', '_'))
+        if importlib.util.find_spec(module_name) is not None:
+            continue  # already installed
         if update_cb:
             update_cb(f'Installing {pkg}…')
         try:
@@ -1349,7 +1360,7 @@ def start_backend(update_cb=None):
             spec = importlib.util.spec_from_file_location('app', BASE_DIR / 'backend' / 'app.py')
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            mod.app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+            mod.app.run(host='127.0.0.1', port=8080, debug=False, use_reloader=False)
         except Exception as exc:
             print(f'[Backend error] {exc}')
 
@@ -1609,8 +1620,8 @@ class MCSApp:
         self.root.destroy()
 
     def _on_minimize(self):
-        self.root.withdraw()
         self.banner.show('MCS minimised to tray')
+        self.root.after(600, self.root.withdraw)
 
     def _on_show(self):
         self.root.deiconify()
