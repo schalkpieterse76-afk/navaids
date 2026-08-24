@@ -1562,12 +1562,14 @@ class TkinterwebWarningDialog:
         self._upg_btn.config(state="disabled", text="Upgrading…")
         self._prog_var.set("Running pip upgrade…")
         def _run():
-            ok = upgrade_tkinterweb(progress_cb=lambda m: self._prog_var.set(m))
+            def _set(m):
+                self.root.after(0, lambda msg=m: self._prog_var.set(msg))
+            ok = upgrade_tkinterweb(progress_cb=_set)
             if ok:
-                self._prog_var.set("✔ Done!  Restarting…")
+                self.root.after(0, lambda: self._prog_var.set("✔ Done!  Restarting…"))
                 self.root.after(1200, self._finish_upgrade)
             else:
-                self._prog_var.set("✗ Failed — continuing with patch.")
+                self.root.after(0, lambda: self._prog_var.set("✗ Failed — continuing with patch."))
                 self.root.after(1500, self._continue)
         threading.Thread(target=_run, daemon=True).start()
 
@@ -1717,6 +1719,7 @@ class BrowserFrame:
         self.frame = tk.Frame(parent, bg='#0a0e17')
         self.frame.pack(fill='both', expand=True)
         self.url = html_path.as_uri()
+        self.html_path = html_path
         self._w = None
 
         if engine == 'tkinterweb':
@@ -1742,7 +1745,7 @@ class BrowserFrame:
 
     def _fallback(self, html_path: pathlib.Path = None):
         import tkinter as tk
-        _hp = html_path or pathlib.Path(self.url.replace('file://', ''))
+        _hp = html_path if html_path is not None else self.html_path
         tk.Label(self.frame, text='MCS CVOR RMS', font=('Segoe UI', 20, 'bold'),
                  fg='#00aaff', bg='#0a0e17').pack(pady=(60, 10))
         tk.Label(self.frame, text='tkinterweb is not available.\nOpen the app in your browser.',
@@ -1867,8 +1870,8 @@ def main():
         warn_result = TkinterwebWarningDialog(ver).show()
         if warn_result == "upgrade":
             print("[MCS] Restarting after tkinterweb upgrade…")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-            return
+            subprocess.Popen([sys.executable] + sys.argv)
+            sys.exit(0)
         elif warn_result == "browser":
             write_files(reset=args.reset)
             if not args.no_backend:
