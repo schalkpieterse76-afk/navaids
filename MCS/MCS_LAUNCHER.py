@@ -1852,10 +1852,38 @@ def main():
     parser.add_argument('--no-backend', action='store_true', dest='no_backend', help='Skip starting Flask backend')
     args = parser.parse_args()
 
-    # Need a minimal Tk root for splash
-    import tkinter as tk
-    root = tk.Tk()
-    root.withdraw()
+    # Try to import tkinter — on Windows it may be absent in some Python
+    # distributions (e.g. embedded / Microsoft Store builds).  If unavailable
+    # (ImportError) or the display/Tcl layer fails to initialise, fall back
+    # gracefully to browser-only mode rather than crashing.
+    root = None
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+    except ImportError as _tk_err:
+        print(f"[MCS] tkinter not available ({_tk_err}) — falling back to browser-only mode.")
+        args.browser_only = True
+    except Exception as _tk_err:
+        # tk.TclError or similar display/init failure
+        print(f"[MCS] tkinter failed to initialise ({_tk_err}) — falling back to browser-only mode.")
+        args.browser_only = True
+
+    if root is None or args.browser_only:
+        # Headless / browser-only path — no splash, no GUI
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+        _patch_tkinterweb()
+        install_deps()
+        write_files(reset=args.reset)
+        if not args.no_backend:
+            start_backend()
+        html_path = BASE_DIR / 'MCS_CVOR_RMS.html'
+        webbrowser.open(html_path.as_uri())
+        return
 
     splash = SplashScreen(root)
 
@@ -1909,10 +1937,6 @@ def main():
     splash.update('Launching UI…')
     splash.close()
     root.destroy()
-
-    if args.browser_only:
-        webbrowser.open(html_path.as_uri())
-        return
 
     app = MCSApp(html_path=html_path, no_backend=args.no_backend)
     app.run()
