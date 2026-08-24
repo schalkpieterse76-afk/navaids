@@ -1281,11 +1281,12 @@ import importlib
 import pathlib
 import webbrowser
 import json as _json
-from datetime import datetime as _dt
+from datetime import datetime as _dt, timezone as _tz
 
 BASE_DIR = pathlib.Path(__file__).parent.resolve()
 CONFIG_FILE = BASE_DIR / 'config.json'
 LOG_FILE = BASE_DIR / 'MCS_LAUNCHER.log'
+_TKINTERWEB_PATCHED = False
 
 DEFAULT_MODE = 'server'
 DEFAULT_SERVER_IP = '127.0.0.1'
@@ -1296,6 +1297,10 @@ REQUIRED_PACKAGES = [
     'netifaces', 'pillow', 'pystray', 'tkinterweb',
     'requests', 'psutil',
 ]
+CLIENT_PACKAGES = tuple(
+    pkg for pkg in REQUIRED_PACKAGES
+    if pkg not in {'flask', 'flask-cors', 'flask-sqlalchemy', 'netifaces'}
+)
 
 
 def save_config(mode: str, ip: str, port: int,
@@ -1306,7 +1311,7 @@ def save_config(mode: str, ip: str, port: int,
         'server_ip': ip,
         'server_port': port,
         'force_browser': force_browser,
-        'installed_at': _dt.utcnow().isoformat(),
+        'installed_at': _dt.now(_tz.utc).isoformat(),
     }
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         _json.dump(cfg, f, indent=2)
@@ -1324,25 +1329,32 @@ def load_or_create_config(reset=False):
         return save_config(DEFAULT_MODE, DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
 
     changed = False
-    mode = cfg.get('mode', DEFAULT_MODE)
-    if mode != cfg.get('mode'):
+    raw_mode = cfg.get('mode')
+    mode = raw_mode or DEFAULT_MODE
+    if not raw_mode:
         changed = True
-    ip = cfg.get('server_ip', DEFAULT_SERVER_IP)
-    if ip != cfg.get('server_ip'):
+    raw_ip = cfg.get('server_ip')
+    ip = raw_ip or DEFAULT_SERVER_IP
+    if not raw_ip:
         changed = True
+    raw_port = cfg.get('server_port')
     try:
-        port = int(cfg.get('server_port', DEFAULT_SERVER_PORT))
+        port = int(raw_port if raw_port is not None else DEFAULT_SERVER_PORT)
     except (TypeError, ValueError):
         port = DEFAULT_SERVER_PORT
         changed = True
+    else:
+        if raw_port is not None and not isinstance(raw_port, int):
+            changed = True
 
     installed_at = cfg.get('installed_at')
     if not installed_at:
-        installed_at = _dt.utcnow().isoformat()
+        installed_at = _dt.now(_tz.utc).isoformat()
         changed = True
 
-    force_browser = bool(cfg.get('force_browser', False))
-    if force_browser != cfg.get('force_browser', False):
+    raw_force_browser = cfg.get('force_browser', False)
+    force_browser = bool(raw_force_browser)
+    if not isinstance(raw_force_browser, bool):
         changed = True
 
     cfg = {
@@ -1368,8 +1380,9 @@ def install_deps(mode='server', update_cb=None):
         'netifaces': 'netifaces', 'pillow': 'PIL', 'pystray': 'pystray',
         'tkinterweb': 'tkinterweb', 'requests': 'requests', 'psutil': 'psutil',
     }
+    packages = REQUIRED_PACKAGES if mode == 'server' else CLIENT_PACKAGES
     failed = []
-    for pkg in REQUIRED_PACKAGES:
+    for pkg in packages:
         module_name = PKG_TO_MODULE.get(pkg, pkg.replace('-', '_'))
         if importlib.util.find_spec(module_name) is not None:
             continue  # already installed
@@ -1484,10 +1497,16 @@ def _patch_tkinterweb():
     Root cause: rgb_to_hex() in subwidgets.py produces 10-char hex strings
     (5 bytes instead of 3) which Tkinter rejects.  We patch rgb_to_hex to
     truncate to the standard #RRGGBB format, and wrap _halfway / configure
-    so any remaining colour errors are silently swallowed.
+    so any remaining color errors are silently swallowed.
     """
+    global _TKINTERWEB_PATCHED
+    if _TKINTERWEB_PATCHED:
+        return
     try:
         import tkinterweb.subwidgets as _sw
+    except ImportError:
+        return
+    try:
 
         # ── Fix 1: patch rgb_to_hex to always produce #RRGGBB ────────────────
         if hasattr(_sw, "rgb_to_hex"):
@@ -1558,18 +1577,16 @@ def _patch_tkinterweb():
                 print("[MCS] tkinterweb: patched WidgetManager._handle_node_style.")
         except Exception as e:
             print(f"[MCS] tkinterweb: _handle_node_style patch skipped: {e}")
+        _TKINTERWEB_PATCHED = True
 
     except Exception as e:
         print(f"[MCS] tkinterweb patch failed: {e}")
-
-
-_patch_tkinterweb()
-
 
 def detect_engine():
     """Detect available browser/web engine."""
     try:
         import tkinterweb
+        _patch_tkinterweb()
         return 'tkinterweb'
     except Exception:
         return 'fallback'
@@ -1731,7 +1748,7 @@ class BrowserFrame:
 
 
 class TrayManager:
-    def __init__(self, root, app, on_show, on_quit):
+    def __init__(self, root, app: 'MCSApp', on_show, on_quit):
         self.root = root
         self.app = app
         self.icon = None
@@ -1772,10 +1789,10 @@ class TrayManager:
 
 
 class MCSApp:
-    def __init__(self, html_path: pathlib.Path, no_backend=False, html_url=None):
+    def __init__(self, html_path: pathlib.Path, no_backend=False):
         import tkinter as tk
         self.html_path = html_path
-        self.html_url = html_url or html_path.as_uri()
+        self.html_url = html_path.as_uri()
         self.no_backend = no_backend
 
         self.root = tk.Tk()
@@ -1858,12 +1875,10 @@ def main():
     force_browser = args.force_browser or cfg.get("force_browser", False)
 
     if args.force_browser and not cfg.get("force_browser"):
-        cfg["force_browser"] = True
-        with open(CONFIG_FILE, "w", encoding='utf-8') as f:
-            _json.dump(cfg, f, indent=2)
+        cfg = save_config(mode, srv_ip, srv_port, force_browser=True)
         print("[MCS] --force-browser saved to config.json (persists across launches).")
 
-    engine = detect_engine()
+    engine = 'browser' if (force_browser or args.browser_only) else detect_engine()
     print('=' * 56)
     print('  MCS CVOR Remote Management System  v2.1')
     print('  South African Air Force  ·  Thales ATM')
@@ -1927,7 +1942,7 @@ def main():
         webbrowser.open(html_path.as_uri())
         return
 
-    app = MCSApp(html_path=html_path, html_url=html_path.as_uri(), no_backend=args.no_backend)
+    app = MCSApp(html_path=html_path, no_backend=args.no_backend)
     app.run()
 
 
