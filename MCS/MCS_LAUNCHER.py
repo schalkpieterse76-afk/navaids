@@ -4,7 +4,8 @@ MCS_LAUNCHER.py — Single-file launcher for the MCS CVOR RMS system.
 Usage:
     python MCS_LAUNCHER.py            # normal launch
     python MCS_LAUNCHER.py --reset    # delete and rewrite all generated files
-    python MCS_LAUNCHER.py --browser-only  # skip Tkinter, open HTML in browser
+    python MCS_LAUNCHER.py --browser-only  # open HTML in browser for this launch only
+    python MCS_LAUNCHER.py --force-browser  # persist browser mode in config.json
     python MCS_LAUNCHER.py --no-backend    # skip Flask backend (offline/demo)
 """
 
@@ -1279,17 +1280,98 @@ import argparse
 import importlib
 import pathlib
 import webbrowser
+import json as _json
+from datetime import datetime as _dt, timezone as _tz
 
 BASE_DIR = pathlib.Path(__file__).parent.resolve()
+CONFIG_FILE = BASE_DIR / 'config.json'
+LOG_FILE = BASE_DIR / 'MCS_LAUNCHER.log'
+_TKINTERWEB_PATCHED = False
+
+DEFAULT_MODE = 'server'
+DEFAULT_SERVER_IP = '127.0.0.1'
+DEFAULT_SERVER_PORT = 8080
 
 REQUIRED_PACKAGES = [
     'flask', 'flask-cors', 'flask-sqlalchemy',
     'netifaces', 'pillow', 'pystray', 'tkinterweb',
     'requests', 'psutil',
 ]
+CLIENT_PACKAGES = tuple(
+    pkg for pkg in REQUIRED_PACKAGES
+    if pkg not in {'flask', 'flask-cors', 'flask-sqlalchemy', 'netifaces'}
+)
 
 
-def install_deps(update_cb=None):
+def save_config(mode: str, ip: str, port: int,
+                force_browser: bool = False) -> dict:
+    cfg = {
+        'mode': mode,
+        'api_url': f'http://{ip}:{port}/api',
+        'server_ip': ip,
+        'server_port': port,
+        'force_browser': force_browser,
+        'installed_at': _dt.now(_tz.utc).isoformat(),
+    }
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        _json.dump(cfg, f, indent=2)
+    return cfg
+
+
+def load_or_create_config(reset=False):
+    if reset or not CONFIG_FILE.exists():
+        return save_config(DEFAULT_MODE, DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            cfg = _json.load(f)
+    except Exception:
+        return save_config(DEFAULT_MODE, DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+
+    changed = False
+    raw_mode = cfg.get('mode')
+    mode = raw_mode or DEFAULT_MODE
+    if not raw_mode:
+        changed = True
+    raw_ip = cfg.get('server_ip')
+    ip = raw_ip or DEFAULT_SERVER_IP
+    if not raw_ip:
+        changed = True
+    raw_port = cfg.get('server_port')
+    try:
+        port = int(raw_port if raw_port is not None else DEFAULT_SERVER_PORT)
+    except (TypeError, ValueError):
+        port = DEFAULT_SERVER_PORT
+        changed = True
+    else:
+        if raw_port is not None and not isinstance(raw_port, int):
+            changed = True
+
+    installed_at = cfg.get('installed_at')
+    if not installed_at:
+        installed_at = _dt.now(_tz.utc).isoformat()
+        changed = True
+
+    raw_force_browser = cfg.get('force_browser', False)
+    force_browser = bool(raw_force_browser)
+    if not isinstance(raw_force_browser, bool):
+        changed = True
+
+    cfg = {
+        'mode': mode,
+        'api_url': f'http://{ip}:{port}/api',
+        'server_ip': ip,
+        'server_port': port,
+        'force_browser': force_browser,
+        'installed_at': installed_at,
+    }
+    if changed:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            _json.dump(cfg, f, indent=2)
+    return cfg
+
+
+def install_deps(mode='server', update_cb=None):
     """Auto-install missing pip packages (skips already-importable ones)."""
     import importlib.util
     # Map pip package name -> importable module name
@@ -1298,8 +1380,9 @@ def install_deps(update_cb=None):
         'netifaces': 'netifaces', 'pillow': 'PIL', 'pystray': 'pystray',
         'tkinterweb': 'tkinterweb', 'requests': 'requests', 'psutil': 'psutil',
     }
+    packages = REQUIRED_PACKAGES if mode == 'server' else CLIENT_PACKAGES
     failed = []
-    for pkg in REQUIRED_PACKAGES:
+    for pkg in packages:
         module_name = PKG_TO_MODULE.get(pkg, pkg.replace('-', '_'))
         if importlib.util.find_spec(module_name) is not None:
             continue  # already installed
@@ -1317,26 +1400,29 @@ def install_deps(update_cb=None):
         print(f'[WARNING] Could not install: {", ".join(failed)}')
 
 
-def write_files(reset=False, update_cb=None):
+def write_files(reset=False, server_mode=True, update_cb=None):
     """Write all backend source files to disk."""
-    backend_dir = BASE_DIR / 'backend'
-    backend_dir.mkdir(exist_ok=True)
-    (BASE_DIR / 'database').mkdir(exist_ok=True)
-
-    # Create empty __init__.py so backend is importable
-    init_file = backend_dir / '__init__.py'
-    if not init_file.exists():
-        init_file.write_text('')
-
     files = {
         BASE_DIR / 'MCS_CVOR_RMS.html': HTML_CONTENT,
-        backend_dir / 'models.py': MODELS_PY,
-        backend_dir / 'database.py': DATABASE_PY,
-        backend_dir / 'network_detect.py': NETWORK_DETECT_PY,
-        backend_dir / 'tcp_client.py': TCP_CLIENT_PY,
-        backend_dir / 'file_import.py': FILE_IMPORT_PY,
-        backend_dir / 'app.py': APP_PY,
     }
+    if server_mode:
+        backend_dir = BASE_DIR / 'backend'
+        backend_dir.mkdir(exist_ok=True)
+        (BASE_DIR / 'database').mkdir(exist_ok=True)
+
+        # Create empty __init__.py so backend is importable
+        init_file = backend_dir / '__init__.py'
+        if not init_file.exists():
+            init_file.write_text('')
+
+        files.update({
+            backend_dir / 'models.py': MODELS_PY,
+            backend_dir / 'database.py': DATABASE_PY,
+            backend_dir / 'network_detect.py': NETWORK_DETECT_PY,
+            backend_dir / 'tcp_client.py': TCP_CLIENT_PY,
+            backend_dir / 'file_import.py': FILE_IMPORT_PY,
+            backend_dir / 'app.py': APP_PY,
+        })
 
     for path, content in files.items():
         if update_cb:
@@ -1345,7 +1431,7 @@ def write_files(reset=False, update_cb=None):
             path.write_text(content.lstrip(), encoding='utf-8')
 
 
-def start_backend(update_cb=None):
+def start_backend(update_cb=None, host='127.0.0.1', port=8080):
     """Import and start the Flask app in a daemon thread."""
     if update_cb:
         update_cb('Starting backend…')
@@ -1360,7 +1446,7 @@ def start_backend(update_cb=None):
             spec = importlib.util.spec_from_file_location('app', BASE_DIR / 'backend' / 'app.py')
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            mod.app.run(host='127.0.0.1', port=8080, debug=False, use_reloader=False)
+            mod.app.run(host=host, port=port, debug=False, use_reloader=False)
         except Exception as exc:
             print(f'[Backend error] {exc}')
 
@@ -1386,12 +1472,123 @@ def make_tray_image():
         return None
 
 
+def _remove_incompatible_cef():
+    if sys.version_info < (3, 10):
+        return
+    try:
+        import importlib.util
+        if importlib.util.find_spec('cefpython3') is None:
+            return
+        subprocess.check_call(
+            [sys.executable, '-m', 'pip', 'uninstall', '-y', 'cefpython3'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print('[MCS] Removed incompatible cefpython3.')
+    except Exception:
+        pass
+
+
+def _patch_tkinterweb():
+    """
+    Fix tkinterweb crash on Python 3.13:
+      TclError: invalid color name "#606a8a1010"
+
+    Root cause: rgb_to_hex() in subwidgets.py produces 10-char hex strings
+    (5 bytes instead of 3) which Tkinter rejects.  We patch rgb_to_hex to
+    truncate to the standard #RRGGBB format, and wrap _halfway / configure
+    so any remaining color errors are silently swallowed.
+    """
+    global _TKINTERWEB_PATCHED
+    if _TKINTERWEB_PATCHED:
+        return
+    try:
+        import tkinterweb.subwidgets as _sw
+    except ImportError:
+        return
+    try:
+
+        # ── Fix 1: patch rgb_to_hex to always produce #RRGGBB ────────────────
+        if hasattr(_sw, "rgb_to_hex"):
+            _orig_r2h = _sw.rgb_to_hex
+            def _safe_rgb_to_hex(*args):
+                try:
+                    result = _orig_r2h(*args)
+                    if isinstance(result, str) and result.startswith("#") and len(result) > 7:
+                        result = result[:7]
+                    return result
+                except Exception:
+                    return "#000000"
+            _sw.rgb_to_hex = _safe_rgb_to_hex
+            try:
+                import tkinterweb.extensions as _ext
+                if hasattr(_ext, "rgb_to_hex"):
+                    _ext.rgb_to_hex = _safe_rgb_to_hex
+            except Exception:
+                pass
+            print("[MCS] tkinterweb: patched rgb_to_hex (truncate >7-char hex).")
+
+        # ── Fix 2: wrap _halfway and configure on all subwidget classes ───────
+        for _cls_name in ('Entry', 'Combobox', 'Label', 'Button', 'Text',
+                          'Scrollbar', 'Spinbox', 'Scale', 'Checkbutton',
+                          'Radiobutton', 'Listbox'):
+            _cls = getattr(_sw, _cls_name, None)
+            if not _cls:
+                continue
+            if hasattr(_cls, '_halfway'):
+                _orig_hw = _cls._halfway
+                def _safe_halfway(self, color, _o=_orig_hw):
+                    try:
+                        if isinstance(color, str) and color.startswith("#") and len(color) > 7:
+                            color = color[:7]
+                        _o(self, color)
+                    except Exception:
+                        pass
+                _cls._halfway = _safe_halfway
+            if hasattr(_cls, 'configure'):
+                _orig_cfg = _cls.configure
+                def _safe_configure(self, _o=_orig_cfg, **kw):
+                    for k in ('background', 'foreground', 'fg', 'bg',
+                              'activebackground', 'activeforeground',
+                              'highlightcolor', 'highlightbackground'):
+                        v = kw.get(k)
+                        if isinstance(v, str) and v.startswith("#") and len(v) > 7:
+                            kw[k] = v[:7]
+                    try:
+                        _o(self, **kw)
+                    except Exception:
+                        pass
+                _cls.configure = _safe_configure
+
+        print("[MCS] tkinterweb: patched widget classes for Python 3.13.")
+
+        # ── Fix 3: patch WidgetManager._handle_node_style directly ───────────
+        try:
+            import tkinterweb.extensions as _ext
+            _WM = getattr(_ext, "WidgetManager", None)
+            if _WM and hasattr(_WM, "_handle_node_style"):
+                _orig_hns = _WM._handle_node_style
+                def _safe_hns(self, node, widgetid, widgettype, _o=_orig_hns):
+                    try:
+                        _o(self, node, widgetid, widgettype)
+                    except Exception:
+                        pass
+                _WM._handle_node_style = _safe_hns
+                print("[MCS] tkinterweb: patched WidgetManager._handle_node_style.")
+        except Exception as e:
+            print(f"[MCS] tkinterweb: _handle_node_style patch skipped: {e}")
+        _TKINTERWEB_PATCHED = True
+
+    except Exception as e:
+        print(f"[MCS] tkinterweb patch failed: {e}")
+
 def detect_engine():
     """Detect available browser/web engine."""
     try:
         import tkinterweb
+        _patch_tkinterweb()
         return 'tkinterweb'
-    except ImportError:
+    except Exception:
         return 'fallback'
 
 
@@ -1551,8 +1748,9 @@ class BrowserFrame:
 
 
 class TrayManager:
-    def __init__(self, root, on_show, on_quit):
+    def __init__(self, root, app: 'MCSApp', on_show, on_quit):
         self.root = root
+        self.app = app
         self.icon = None
         try:
             import pystray
@@ -1560,14 +1758,27 @@ class TrayManager:
             if img is None:
                 return
 
-            menu = pystray.Menu(
-                pystray.MenuItem('Show MCS', lambda: root.after(0, on_show)),
-                pystray.MenuItem('Quit', lambda: root.after(0, on_quit)),
-            )
+            menu = self._build_menu(pystray, on_show, on_quit)
             self.icon = pystray.Icon('MCS CVOR RMS', img, 'MCS CVOR RMS', menu)
             threading.Thread(target=self.icon.run, daemon=True).start()
         except Exception as exc:
             print(f'[Tray] {exc}')
+
+    def _safe(self, callback):
+        try:
+            self.root.after(0, callback)
+        except Exception:
+            pass
+
+    def _build_menu(self, pystray, on_show, on_quit):
+        return pystray.Menu(
+            pystray.MenuItem('Show MCS', lambda *_: self._safe(on_show)),
+            pystray.MenuItem('Actions', pystray.Menu(
+                pystray.MenuItem("🌐  Force Browser Mode",
+                    lambda *_: self._safe(self.app.open_browser)),
+            )),
+            pystray.MenuItem('Quit', lambda *_: self._safe(on_quit)),
+        )
 
     def stop(self):
         if self.icon:
@@ -1581,6 +1792,7 @@ class MCSApp:
     def __init__(self, html_path: pathlib.Path, no_backend=False):
         import tkinter as tk
         self.html_path = html_path
+        self.html_url = html_path.as_uri()
         self.no_backend = no_backend
 
         self.root = tk.Tk()
@@ -1611,16 +1823,23 @@ class MCSApp:
         BrowserFrame(self.root, html_path, engine)
 
         # Tray
-        self.tray = TrayManager(self.root, self._on_show, self._on_close)
+        self.tray = TrayManager(self.root, self, self._on_show, self._on_close)
 
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def _notify(self, message, kind='info'):
+        self.banner.show(message)
+
+    def open_browser(self):
+        webbrowser.open(self.html_url)
+        self._notify('Opened in browser. Use --force-browser to always skip tkinterweb.', 'info')
 
     def _on_close(self):
         self.tray.stop()
         self.root.destroy()
 
     def _on_minimize(self):
-        self.banner.show('MCS minimised to tray')
+        self._notify('MCS minimised to tray')
         self.root.after(600, self.root.withdraw)
 
     def _on_show(self):
@@ -1634,11 +1853,63 @@ class MCSApp:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='MCS CVOR RMS Launcher')
+    parser = argparse.ArgumentParser(description='MCS CVOR RMS Launcher v2.1')
     parser.add_argument('--reset', action='store_true', help='Delete and rewrite all generated files')
-    parser.add_argument('--browser-only', action='store_true', dest='browser_only', help='Open HTML in default browser, skip Tkinter')
+    parser.add_argument('--reconfigure', action='store_true', help='Reset launcher config to defaults')
+    parser.add_argument('--browser-only', action='store_true', dest='browser_only',
+                        help='Open in browser this launch only (does not persist).')
     parser.add_argument('--no-backend', action='store_true', dest='no_backend', help='Skip starting Flask backend')
+    parser.add_argument('--force-browser', '--fb',
+                        action='store_true', dest='force_browser',
+                        help='Always open in browser — saved to config.json and persists across launches. '
+                             'Use --reconfigure to reset.')
     args = parser.parse_args()
+
+    cfg = load_or_create_config(reset=args.reconfigure)
+    mode = cfg.get('mode', DEFAULT_MODE)
+    srv_ip = cfg.get('server_ip', DEFAULT_SERVER_IP)
+    srv_port = int(cfg.get('server_port', DEFAULT_SERVER_PORT))
+    api_url = cfg.get('api_url', f'http://{srv_ip}:{srv_port}/api')
+
+    # Merge --force-browser from CLI and from saved config
+    force_browser = args.force_browser or cfg.get("force_browser", False)
+
+    if args.force_browser and not cfg.get("force_browser"):
+        cfg = save_config(mode, srv_ip, srv_port, force_browser=True)
+        print("[MCS] --force-browser saved to config.json (persists across launches).")
+
+    engine = 'browser' if (force_browser or args.browser_only) else detect_engine()
+    print('=' * 56)
+    print('  MCS CVOR Remote Management System  v2.1')
+    print('  South African Air Force  ·  Thales ATM')
+    print(f'  Python  : {sys.version.split()[0]}')
+    print(f"  Engine  : {engine}{'  (--force-browser active)' if force_browser else ''}")
+    print(f'  Mode    : {mode}')
+    print(f'  API URL : {api_url}')
+    print(f'  Log     : {LOG_FILE}')
+    print('=' * 56)
+
+    # ── --force-browser: skip tkinterweb, open directly in browser ───────────────
+    if force_browser:
+        print('[MCS] --force-browser active: bypassing tkinterweb.')
+        # Still write files and optionally start backend
+        _remove_incompatible_cef()
+        install_deps(mode=mode)
+        write_files(reset=args.reset, server_mode=(mode == 'server'))
+        if mode == 'server' and not args.no_backend:
+            start_backend(host=srv_ip, port=srv_port)
+        url = (BASE_DIR / 'MCS_CVOR_RMS.html').as_uri()
+        print(f'[MCS] Opening: {url}')
+        webbrowser.open(url)
+        print('[MCS] Launched in browser. Press Ctrl+C to stop backend.')
+        # Keep the process alive if backend is running (so Flask stays up)
+        if mode == 'server' and not args.no_backend:
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print('\n[MCS] Shutting down.')
+        return
 
     # Need a minimal Tk root for splash
     import tkinter as tk
@@ -1649,16 +1920,16 @@ def main():
 
     # 1. Install deps
     splash.update('Installing dependencies…')
-    install_deps(update_cb=splash.update)
+    install_deps(mode=mode, update_cb=splash.update)
 
     # 2. Write files
     splash.update('Writing files…')
-    write_files(reset=args.reset, update_cb=splash.update)
+    write_files(reset=args.reset, server_mode=(mode == 'server'), update_cb=splash.update)
 
     # 3. Start backend
-    if not args.no_backend:
+    if mode == 'server' and not args.no_backend:
         splash.update('Starting backend…')
-        start_backend(update_cb=splash.update)
+        start_backend(update_cb=splash.update, host=srv_ip, port=srv_port)
 
     html_path = BASE_DIR / 'MCS_CVOR_RMS.html'
 
