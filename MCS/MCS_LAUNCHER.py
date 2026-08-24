@@ -1282,6 +1282,92 @@ import webbrowser
 
 BASE_DIR = pathlib.Path(__file__).parent.resolve()
 
+# ── Dark Thales ATM theme constants ──────────────────────────────────────────
+_DBG   = '#0a0e17'    # background
+_DPNL  = '#111827'    # panel
+_DACC  = '#00aaff'    # accent blue
+_DACC2 = '#00ff99'    # accent green
+_DTXT  = '#c8d6e5'    # text
+_DDIM  = '#4a5e72'    # muted / dimmed
+_DFS   = ('Courier New', 9)   # font small
+_DFM   = ('Courier New', 9, 'bold')  # font medium bold
+
+# ── tkinterweb Python 3.13 compatibility patch ───────────────────────────────
+def _patch_tkinterweb():
+    """Silently ignore configure() errors in tkinterweb subwidgets.
+    Fixes crash in extensions.py _handle_node_style on Python 3.13.
+    Known bug in tkinterweb < 3.24 with Python 3.10+."""
+    try:
+        import tkinterweb.subwidgets as _sw
+        _patched = 0
+        for _cls_name in ('Entry', 'Combobox', 'Label', 'Button', 'Text',
+                          'Scrollbar', 'Spinbox', 'Scale', 'Checkbutton',
+                          'Radiobutton', 'Listbox'):
+            _cls = getattr(_sw, _cls_name, None)
+            if _cls and hasattr(_cls, 'configure'):
+                _orig = _cls.configure
+                def _safe(self, _o=_orig, **kw):
+                    try:
+                        _o(self, **kw)
+                    except Exception:
+                        pass
+                _cls.configure = _safe
+                _patched += 1
+        if _patched:
+            print(f"[MCS] tkinterweb patched {_patched} widget classes for Python 3.13 compatibility.")
+    except Exception as e:
+        print(f"[MCS] tkinterweb patch skipped: {e}")
+
+
+# ── tkinterweb version check ──────────────────────────────────────────────────
+_TKINTERWEB_MIN = (3, 24)   # minimum recommended version
+
+def check_tkinterweb_version() -> dict:
+    """Check tkinterweb version. Returns dict with keys:
+    installed, version (tuple), version_str, ok, needs_upgrade, error."""
+    result = {"installed": False, "version": None, "version_str": None,
+              "ok": False, "needs_upgrade": False, "error": None}
+    try:
+        import importlib.util as _ilu
+        if not _ilu.find_spec("tkinterweb"):
+            result["error"] = "not_installed"; return result
+        import tkinterweb as _tw
+        result["installed"] = True
+        ver_str = getattr(_tw, "__version__", None) or getattr(_tw, "VERSION", None) or ""
+        result["version_str"] = ver_str
+        import re as _re
+        m = _re.match(r"(\d+)[.\-](\d+)(?:[.\-](\d+))?", str(ver_str))
+        if m:
+            parts = tuple(int(x) for x in m.groups() if x is not None)
+            result["version"] = parts
+            result["ok"] = parts[:2] >= _TKINTERWEB_MIN
+            result["needs_upgrade"] = not result["ok"]
+        else:
+            result["ok"] = True   # can't parse — assume OK
+            result["error"] = f"unparseable_version:{ver_str}"
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
+def upgrade_tkinterweb(progress_cb=None) -> bool:
+    """Run pip install --upgrade tkinterweb. Returns True on success."""
+    if progress_cb:
+        progress_cb("Running: pip install --upgrade tkinterweb…")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "tkinterweb"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if progress_cb:
+            progress_cb("✔ tkinterweb upgraded successfully.")
+        return True
+    except subprocess.CalledProcessError as e:
+        if progress_cb:
+            progress_cb(f"✗ Upgrade failed: {e}")
+        return False
+
+
 REQUIRED_PACKAGES = [
     'flask', 'flask-cors', 'flask-sqlalchemy',
     'netifaces', 'pillow', 'pystray', 'tkinterweb',
@@ -1395,6 +1481,111 @@ def detect_engine():
         return 'fallback'
 
 
+# ── tkinterweb upgrade warning dialog ────────────────────────────────────────
+class TkinterwebWarningDialog:
+    """
+    Shown during splash if tkinterweb < 3.24 is detected.
+    Offers: Upgrade Now | Continue Anyway | Open in Browser
+    Returns: 'upgrade' | 'continue' | 'browser' | None
+    """
+    def __init__(self, version_str: str):
+        import tkinter as tk
+        self._result = None
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.root.overrideredirect(True)
+        self.root.configure(bg=_DBG)
+        W, H = 540, 360
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        self.root.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
+        self._ver = version_str
+        self._build()
+
+    def _build(self):
+        import tkinter as tk
+        # Orange warning border
+        border = tk.Frame(self.root, bg="#fd7e14", padx=2, pady=2)
+        border.pack(fill="both", expand=True)
+        inner = tk.Frame(border, bg=_DBG)
+        inner.pack(fill="both", expand=True)
+
+        # Header
+        hdr = tk.Frame(inner, bg=_DPNL); hdr.pack(fill="x")
+        tk.Label(hdr, text="✈", font=("Courier New", 18),
+                 bg=_DPNL, fg=_DACC).pack(side="left", padx=(12,6), pady=8)
+        tbox = tk.Frame(hdr, bg=_DPNL); tbox.pack(side="left")
+        tk.Label(tbox, text="MCS CVOR RMS  —  tkinterweb Warning",
+                 font=("Courier New", 10, "bold"), bg=_DPNL, fg="#fd7e14").pack(anchor="w")
+        tk.Label(tbox, text="Rendering engine compatibility check",
+                 font=_DFS, bg=_DPNL, fg=_DDIM).pack(anchor="w")
+        tk.Frame(inner, bg="#fd7e14", height=1).pack(fill="x")
+
+        # Body
+        body = tk.Frame(inner, bg=_DBG)
+        body.pack(fill="both", expand=True, padx=18, pady=12)
+        tk.Label(body, text="⚠", font=("Courier New", 30),
+                 bg=_DBG, fg="#fd7e14").pack()
+        tk.Label(body, text=f"tkinterweb  {self._ver}  is installed.",
+                 font=("Courier New", 10, "bold"), bg=_DBG, fg="#fd7e14").pack(pady=(4,0))
+        tk.Label(body,
+                 text=f"Version 3.24+ is recommended for Python "
+                      f"{sys.version_info.major}.{sys.version_info.minor}.",
+                 font=_DFS, bg=_DBG, fg=_DTXT).pack()
+        tk.Label(body,
+                 text="Older versions may crash when rendering the UI.\n"
+                      "A compatibility patch has been applied automatically,\n"
+                      "but upgrading is strongly recommended.",
+                 font=_DFS, bg=_DBG, fg=_DDIM, justify="center").pack(pady=(8,0))
+
+        self._prog_var = tk.StringVar(value="")
+        tk.Label(body, textvariable=self._prog_var,
+                 font=_DFS, bg=_DBG, fg=_DACC2).pack(pady=4)
+
+        # Buttons
+        btn_row = tk.Frame(inner, bg=_DBG); btn_row.pack(pady=(0,14))
+        self._upg_btn = tk.Button(
+            btn_row, text="⬆  Upgrade to Latest", font=_DFM,
+            bg=_DBG, fg=_DACC2, bd=1, relief="solid", cursor="hand2",
+            padx=10, pady=6, activebackground=_DACC2, activeforeground="#000",
+            command=self._do_upgrade)
+        self._upg_btn.pack(side="left", padx=5)
+        tk.Button(btn_row, text="▶  Continue Anyway", font=_DFM,
+                  bg=_DBG, fg="#fd7e14", bd=1, relief="solid", cursor="hand2",
+                  padx=10, pady=6, activebackground="#fd7e14", activeforeground="#000",
+                  command=self._continue).pack(side="left", padx=5)
+        tk.Button(btn_row, text="🌐  Open in Browser", font=_DFM,
+                  bg=_DBG, fg=_DDIM, bd=1, relief="solid", cursor="hand2",
+                  padx=10, pady=6, command=self._browser).pack(side="left", padx=5)
+
+    def _do_upgrade(self):
+        import threading
+        self._upg_btn.config(state="disabled", text="Upgrading…")
+        self._prog_var.set("Running pip upgrade…")
+        def _run():
+            def _set(m):
+                self.root.after(0, lambda msg=m: self._prog_var.set(msg))
+            ok = upgrade_tkinterweb(progress_cb=_set)
+            if ok:
+                self.root.after(0, lambda: self._prog_var.set("✔ Done!  Restarting…"))
+                self.root.after(1200, self._finish_upgrade)
+            else:
+                self.root.after(0, lambda: self._prog_var.set("✗ Failed — continuing with patch."))
+                self.root.after(1500, self._continue)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _finish_upgrade(self):
+        self._result = "upgrade"; self.root.destroy()
+
+    def _continue(self):
+        self._result = "continue"; self.root.destroy()
+
+    def _browser(self):
+        self._result = "browser"; self.root.destroy()
+
+    def show(self) -> str:
+        self.root.deiconify(); self.root.mainloop(); return self._result
+
+
 class SplashScreen:
     def __init__(self, root):
         import tkinter as tk
@@ -1409,21 +1600,26 @@ class SplashScreen:
                  fg='#00aaff', bg='#0a0e17').pack(pady=(30, 5))
         tk.Label(self.top, text='Thales ATM Management Console',
                  font=('Segoe UI', 9), fg='#4a5e72', bg='#0a0e17').pack()
-        self.status_var = tk.StringVar(value='Initialising…')
-        tk.Label(self.top, textvariable=self.status_var,
+        self.sv = tk.StringVar(value='Initialising…')
+        tk.Label(self.top, textvariable=self.sv,
                  font=('Segoe UI', 9), fg='#00ff99', bg='#0a0e17').pack(pady=(20, 5))
         import tkinter.ttk as ttk
-        self.pb = ttk.Progressbar(self.top, length=300, mode='indeterminate')
-        self.pb.pack(pady=5)
-        self.pb.start(15)
+        self.prog = ttk.Progressbar(self.top, length=300, mode='indeterminate')
+        self.prog.pack(pady=5)
+        self.prog.start(15)
         self.top.update()
 
-    def update(self, msg):
-        self.status_var.set(msg)
+    def update(self, msg: str, val: int = None):
+        self.sv.set(msg)
+        if val is not None:
+            try:
+                self.prog["value"] = val
+            except Exception:
+                pass
         self.top.update()
 
     def close(self):
-        self.pb.stop()
+        self.prog.stop()
         self.top.destroy()
 
 
@@ -1522,18 +1718,34 @@ class BrowserFrame:
         import tkinter as tk
         self.frame = tk.Frame(parent, bg='#0a0e17')
         self.frame.pack(fill='both', expand=True)
+        self.url = html_path.as_uri()
+        self.html_path = html_path
+        self._w = None
 
         if engine == 'tkinterweb':
-            try:
-                from tkinterweb import HtmlFrame
-                hf = HtmlFrame(self.frame, horizontal_scrollbar='auto')
-                hf.pack(fill='both', expand=True)
-                hf.load_file(str(html_path))
-                return
-            except Exception:
-                pass
+            self._tkinterweb()
+        else:
+            self._fallback(html_path)
 
-        # Fallback
+    def _tkinterweb(self):
+        try:
+            from tkinterweb import HtmlFrame
+            f = HtmlFrame(self.frame, horizontal_scrollbar="auto",
+                          messages_enabled=False)
+            f.pack(fill="both", expand=True)
+            try:
+                f.load_url(self.url)
+            except Exception as load_err:
+                print(f"[tkinterweb] load warning (non-fatal): {load_err}")
+            self._w = f
+            return   # explicit return — prevents fallthrough to _fallback
+        except Exception as e:
+            print(f"[tkinterweb] init failed: {e}")
+            self._fallback()
+
+    def _fallback(self, html_path: pathlib.Path = None):
+        import tkinter as tk
+        _hp = html_path if html_path is not None else self.html_path
         tk.Label(self.frame, text='MCS CVOR RMS', font=('Segoe UI', 20, 'bold'),
                  fg='#00aaff', bg='#0a0e17').pack(pady=(60, 10))
         tk.Label(self.frame, text='tkinterweb is not available.\nOpen the app in your browser.',
@@ -1541,7 +1753,7 @@ class BrowserFrame:
         tk.Button(
             self.frame, text='Open in Browser', font=('Segoe UI', 10, 'bold'),
             bg='#00aaff', fg='#000', relief='flat', padx=20, pady=8,
-            command=lambda: webbrowser.open(html_path.as_uri()),
+            command=lambda: webbrowser.open(self.url),
         ).pack(pady=10)
         tk.Button(
             self.frame, text='Open Backend (http://localhost:8080)',
@@ -1647,8 +1859,39 @@ def main():
 
     splash = SplashScreen(root)
 
+    # tkinterweb version check — warn if < 3.24
+    splash.update("Checking tkinterweb version…", 5)
+    _tw_info = check_tkinterweb_version()
+    if _tw_info["installed"] and _tw_info["needs_upgrade"]:
+        ver = _tw_info["version_str"] or "unknown"
+        print(f"[MCS] tkinterweb {ver} < 3.24 detected — showing upgrade dialog.")
+        splash.close()
+        root.withdraw()
+        warn_result = TkinterwebWarningDialog(ver).show()
+        if warn_result == "upgrade":
+            print("[MCS] Restarting after tkinterweb upgrade…")
+            subprocess.Popen([sys.executable] + sys.argv)
+            sys.exit(0)
+        elif warn_result == "browser":
+            write_files(reset=args.reset)
+            if not args.no_backend:
+                start_backend()
+            html_path = BASE_DIR / 'MCS_CVOR_RMS.html'
+            webbrowser.open(html_path.as_uri())
+            return
+        # "continue" or window closed — recreate splash and proceed
+        root.deiconify()
+        splash = SplashScreen(root)
+        splash.update("Continuing with compatibility patch…", 10)
+    elif _tw_info["ok"] and _tw_info["installed"]:
+        splash.update(f"tkinterweb {_tw_info['version_str']} ✔", 5)
+    elif not _tw_info["installed"]:
+        splash.update("tkinterweb not found — will install…", 5)
+    # Apply compatibility patch regardless of version
+    _patch_tkinterweb()
+
     # 1. Install deps
-    splash.update('Installing dependencies…')
+    splash.update('Installing dependencies…', 10)
     install_deps(update_cb=splash.update)
 
     # 2. Write files
