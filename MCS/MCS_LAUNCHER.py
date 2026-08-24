@@ -1183,7 +1183,9 @@ def cvor_db_settings(cid):
     CVORSystem.query.get_or_404(cid)
     if request.method == 'GET':
         s = CVORSettings.query.filter_by(cvor_id=cid).first()
-        return jsonify(s.to_dict() if s else {})
+        if not s:
+            return jsonify({'error': 'not_found'}), 404
+        return jsonify(s.to_dict()), 200
     d = request.get_json(force=True)
     s = CVORSettings.query.filter_by(cvor_id=cid).first()
     if not s:
@@ -1204,7 +1206,9 @@ def cvor_shelter(cid):
     CVORSystem.query.get_or_404(cid)
     if request.method == 'GET':
         sh = ShelterLayout.query.filter_by(cvor_id=cid).first()
-        return jsonify(sh.to_dict() if sh else {})
+        if not sh:
+            return jsonify({'error': 'not_found'}), 404
+        return jsonify(sh.to_dict()), 200
     d = request.get_json(force=True)
     sh = ShelterLayout.query.filter_by(cvor_id=cid).first()
     if not sh:
@@ -1278,6 +1282,7 @@ import time
 import argparse
 import importlib
 import pathlib
+import queue
 import webbrowser
 
 BASE_DIR = pathlib.Path(__file__).parent.resolve()
@@ -1289,58 +1294,82 @@ REQUIRED_PACKAGES = [
 ]
 
 
-def install_deps(update_cb=None):
-    """Auto-install missing pip packages (skips already-importable ones)."""
-    import importlib.util
-    # Map pip package name -> importable module name
-    PKG_TO_MODULE = {
-        'flask': 'flask', 'flask-cors': 'flask_cors', 'flask-sqlalchemy': 'flask_sqlalchemy',
-        'netifaces': 'netifaces', 'pillow': 'PIL', 'pystray': 'pystray',
-        'tkinterweb': 'tkinterweb', 'requests': 'requests', 'psutil': 'psutil',
+def install_deps(mode: str = "server", update_cb=None):
+    """Auto-install pip packages. Server installs all; client installs UI only.
+    Uses except Exception (not ImportError) to catch version errors too."""
+    import importlib.util as _ilu
+
+    SERVER_PKG_MAP = {
+        "flask":             "flask",
+        "flask_cors":        "flask-cors",
+        "flask_sqlalchemy":  "flask-sqlalchemy",
+        "netifaces":         "netifaces",
+        "PIL":               "pillow",
+        "pystray":           "pystray",
+        "tkinterweb":        "tkinterweb",
+        "requests":          "requests",
+        "psutil":            "psutil",
     }
+    CLIENT_PKG_MAP = {
+        "PIL":        "pillow",
+        "pystray":    "pystray",
+        "tkinterweb": "tkinterweb",
+        "requests":   "requests",
+    }
+    pkg_map = SERVER_PKG_MAP if mode == "server" else CLIENT_PKG_MAP
     failed = []
-    for pkg in REQUIRED_PACKAGES:
-        module_name = PKG_TO_MODULE.get(pkg, pkg.replace('-', '_'))
-        if importlib.util.find_spec(module_name) is not None:
-            continue  # already installed
+    for mod, pkg in pkg_map.items():
+        spec_found = False
+        try:
+            spec_found = _ilu.find_spec(mod) is not None
+        except Exception:
+            spec_found = False
+        if spec_found:
+            continue
         if update_cb:
-            update_cb(f'Installing {pkg}…')
+            update_cb(f"Installing {pkg}…")
         try:
             subprocess.check_call(
-                [sys.executable, '-m', 'pip', 'install', '--quiet', pkg],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                [sys.executable, "-m", "pip", "install", "--quiet", pkg],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except subprocess.CalledProcessError:
             failed.append(pkg)
     if failed:
-        print(f'[WARNING] Could not install: {", ".join(failed)}')
+        print(f"[MCS] Could not install: {', '.join(failed)}")
 
 
-def write_files(reset=False, update_cb=None):
-    """Write all backend source files to disk."""
+def write_files(reset=False, update_cb=None, server_mode=True):
+    """Write embedded files to disk. In client mode, only write HTML."""
     backend_dir = BASE_DIR / 'backend'
-    backend_dir.mkdir(exist_ok=True)
     (BASE_DIR / 'database').mkdir(exist_ok=True)
 
-    # Create empty __init__.py so backend is importable
+    html_path = BASE_DIR / 'MCS_CVOR_RMS.html'
+    if update_cb:
+        update_cb('Writing MCS_CVOR_RMS.html…')
+    if reset or not html_path.exists():
+        html_path.write_text(HTML_CONTENT.lstrip(), encoding='utf-8')
+
+    if not server_mode:
+        return   # client mode: no backend files needed
+
+    backend_dir.mkdir(exist_ok=True)
     init_file = backend_dir / '__init__.py'
     if not init_file.exists():
         init_file.write_text('')
 
-    files = {
-        BASE_DIR / 'MCS_CVOR_RMS.html': HTML_CONTENT,
-        backend_dir / 'models.py': MODELS_PY,
-        backend_dir / 'database.py': DATABASE_PY,
-        backend_dir / 'network_detect.py': NETWORK_DETECT_PY,
-        backend_dir / 'tcp_client.py': TCP_CLIENT_PY,
-        backend_dir / 'file_import.py': FILE_IMPORT_PY,
-        backend_dir / 'app.py': APP_PY,
+    backend_files = {
+        'models.py':         MODELS_PY,
+        'database.py':       DATABASE_PY,
+        'network_detect.py': NETWORK_DETECT_PY,
+        'tcp_client.py':     TCP_CLIENT_PY,
+        'file_import.py':    FILE_IMPORT_PY,
+        'app.py':            APP_PY,
     }
-
-    for path, content in files.items():
+    for name, content in backend_files.items():
+        path = backend_dir / name
         if update_cb:
-            update_cb(f'Writing {path.name}…')
+            update_cb(f'Writing {name}…')
         if reset or not path.exists():
             path.write_text(content.lstrip(), encoding='utf-8')
 
@@ -1386,16 +1415,276 @@ def make_tray_image():
         return None
 
 
-def detect_engine():
-    """Detect available browser/web engine."""
-    try:
-        import tkinterweb
-        return 'tkinterweb'
-    except ImportError:
-        return 'fallback'
+def _remove_incompatible_cef():
+    """Silently uninstall cefpython3 if Python >= 3.10 (not supported)."""
+    if sys.version_info >= (3, 10):
+        try:
+            import importlib.util as _ilu
+            if _ilu.find_spec("cefpython3"):
+                print("[MCS] Removing incompatible cefpython3 (Python 3.10+ not supported)…")
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "uninstall", "-y", "cefpython3"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+        except Exception:
+            pass
+
+
+_ENGINE_CACHE = None
+
+
+def detect_engine() -> str:
+    """Detect best available browser engine.
+    Uses except Exception (not ImportError) to catch ALL failures
+    including version errors from cefpython3 on Python 3.10+."""
+    global _ENGINE_CACHE
+    if _ENGINE_CACHE is not None:
+        return _ENGINE_CACHE
+    _remove_incompatible_cef()
+    for mod, name in [
+        ("cefpython3", "cef"),
+        ("tkinterweb", "tkinterweb"),
+        ("webview",    "pywebview"),
+    ]:
+        try:
+            __import__(mod)
+            _ENGINE_CACHE = name
+            return _ENGINE_CACHE
+        except Exception:   # catches ImportError AND version crashes
+            pass
+    _ENGINE_CACHE = "fallback"
+    return _ENGINE_CACHE
+
+
+import json as _json
+from datetime import datetime as _dt, timezone as _tz
+
+CONFIG_FILE = BASE_DIR / "config.json"
+
+# ── Colour constants for dialog ───────────────────────────────────────────────
+_DBG   = "#0a0e17"
+_DPNL  = "#111827"
+_DBDR  = "#1e3a5f"
+_DACC  = "#00aaff"
+_DACC2 = "#00ff99"
+_DDNG  = "#ff3b30"
+_DTXT  = "#c9d9ea"
+_DDIM  = "#6b8aaa"
+_DFM   = ("Courier New", 10)
+_DFS   = ("Courier New", 8)
+_DFT   = ("Courier New", 12, "bold")
+
+
+def load_or_create_config():
+    """Return parsed config.json dict, or None if it does not exist."""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return _json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+def save_config(mode: str, ip: str, port: int) -> dict:
+    cfg = {
+        "mode":         mode,
+        "api_url":      f"http://{ip}:{port}/api",
+        "server_ip":    ip,
+        "server_port":  port,
+        "installed_at": _dt.now(_tz.utc).isoformat(),
+    }
+    with open(CONFIG_FILE, "w") as f:
+        _json.dump(cfg, f, indent=2)
+    return cfg
+
+
+class InstallModeDialog:
+    """
+    First-launch Thales ATM themed borderless dialog.
+    Shows two panels: SERVER MODE and LOCAL/CLIENT MODE.
+    Returns ("server", "127.0.0.1", 8080)
+          | ("client", ip, port)
+          | None  (cancelled)
+    """
+    def __init__(self):
+        import tkinter as tk
+        self._result = None
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.root.overrideredirect(True)
+        self.root.configure(bg=_DBG)
+        W, H = 600, 500
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        self.root.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
+        self._build()
+
+    def _build(self):
+        import tkinter as tk
+        # Outer accent border
+        border = tk.Frame(self.root, bg=_DACC, padx=2, pady=2)
+        border.pack(fill="both", expand=True)
+        inner = tk.Frame(border, bg=_DBG)
+        inner.pack(fill="both", expand=True)
+
+        # Header
+        hdr = tk.Frame(inner, bg=_DPNL)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="✈", font=("Courier New", 22),
+                 bg=_DPNL, fg=_DACC).pack(side="left", padx=(14, 6), pady=10)
+        tbox = tk.Frame(hdr, bg=_DPNL)
+        tbox.pack(side="left")
+        tk.Label(tbox, text="MCS CVOR REMOTE MANAGEMENT SYSTEM",
+                 font=_DFT, bg=_DPNL, fg=_DACC).pack(anchor="w")
+        tk.Label(tbox, text="South African Air Force  ·  Thales ATM  ·  v2.1",
+                 font=_DFS, bg=_DPNL, fg=_DDIM).pack(anchor="w")
+        tk.Label(tbox, text=f"Python {sys.version.split()[0]}  ·  First Launch Setup",
+                 font=_DFS, bg=_DPNL, fg=_DDIM).pack(anchor="w")
+        tk.Frame(inner, bg=_DACC, height=1).pack(fill="x")
+
+        tk.Label(inner, text="Select Installation Mode",
+                 font=("Courier New", 11, "bold"),
+                 bg=_DBG, fg=_DTXT, pady=10).pack()
+
+        body = tk.Frame(inner, bg=_DBG)
+        body.pack(fill="both", expand=True, padx=14, pady=4)
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+
+        # ── SERVER panel ──────────────────────────────────────────────────────
+        sp = tk.Frame(body, bg=_DPNL, highlightthickness=2,
+                      highlightbackground=_DBDR)
+        sp.grid(row=0, column=0, padx=(0, 6), pady=4, sticky="nsew")
+        sp.bind("<Enter>",  lambda e, f=sp: f.config(highlightbackground=_DACC))
+        sp.bind("<Leave>",  lambda e, f=sp: f.config(highlightbackground=_DBDR))
+
+        tk.Label(sp, text="🖥  SERVER MODE",
+                 font=("Courier New", 10, "bold"),
+                 bg=_DPNL, fg=_DACC, pady=10).pack()
+        tk.Label(sp,
+                 text="Install full backend + frontend\non THIS machine.\n\n"
+                      "Runs Flask API on port 8080.\n"
+                      "Use on the dedicated MCS server.",
+                 font=_DFS, bg=_DPNL, fg=_DDIM,
+                 justify="center", wraplength=230).pack(pady=6)
+        tk.Label(sp,
+                 text="Installs: flask, sqlalchemy,\nnetifaces, pillow, pystray,\ntkinterweb, requests, psutil",
+                 font=_DFS, bg=_DPNL, fg=_DDIM,
+                 justify="center").pack(pady=4)
+        tk.Button(sp, text="[ Install as Server ]",
+                  font=_DFM, bg=_DPNL, fg=_DACC2,
+                  bd=1, relief="solid", cursor="hand2", pady=7,
+                  activebackground=_DACC2, activeforeground="#000",
+                  command=self._choose_server).pack(pady=(10, 14))
+
+        # ── CLIENT panel ──────────────────────────────────────────────────────
+        cp = tk.Frame(body, bg=_DPNL, highlightthickness=2,
+                      highlightbackground=_DBDR)
+        cp.grid(row=0, column=1, padx=(6, 0), pady=4, sticky="nsew")
+        cp.bind("<Enter>",  lambda e, f=cp: f.config(highlightbackground=_DACC))
+        cp.bind("<Leave>",  lambda e, f=cp: f.config(highlightbackground=_DBDR))
+
+        tk.Label(cp, text="💻  LOCAL / CLIENT MODE",
+                 font=("Courier New", 10, "bold"),
+                 bg=_DPNL, fg=_DACC, pady=10).pack()
+        tk.Label(cp,
+                 text="Install UI only.\nConnect to a remote MCS server\nover TCP/IP network.",
+                 font=_DFS, bg=_DPNL, fg=_DDIM,
+                 justify="center", wraplength=230).pack(pady=6)
+
+        frow = tk.Frame(cp, bg=_DPNL)
+        frow.pack(pady=4)
+        tk.Label(frow, text="Server IP:", font=_DFS,
+                 bg=_DPNL, fg=_DDIM).grid(row=0, column=0, sticky="e", padx=4, pady=3)
+        self._ip_var = tk.StringVar(value="127.0.0.1")
+        tk.Entry(frow, textvariable=self._ip_var, font=_DFS, width=18,
+                 bg="#0c1520", fg=_DTXT, insertbackground=_DACC,
+                 bd=1, relief="solid").grid(row=0, column=1, padx=4)
+        tk.Label(frow, text="Port:", font=_DFS,
+                 bg=_DPNL, fg=_DDIM).grid(row=1, column=0, sticky="e", padx=4, pady=3)
+        self._port_var = tk.StringVar(value="8080")
+        tk.Entry(frow, textvariable=self._port_var, font=_DFS, width=6,
+                 bg="#0c1520", fg=_DTXT, insertbackground=_DACC,
+                 bd=1, relief="solid").grid(row=1, column=1, sticky="w", padx=4)
+
+        self._test_lbl = tk.Label(cp, text="", font=_DFS, bg=_DPNL, fg=_DDIM)
+        self._test_lbl.pack()
+        tk.Button(cp, text="[ Test Connection ]",
+                  font=_DFS, bg=_DPNL, fg=_DDIM,
+                  bd=1, relief="solid", cursor="hand2",
+                  command=self._test_conn).pack(pady=3)
+        tk.Label(cp,
+                 text="Installs: pillow, pystray,\ntkinterweb, requests",
+                 font=_DFS, bg=_DPNL, fg=_DDIM,
+                 justify="center").pack(pady=4)
+        tk.Button(cp, text="[ Install as Client ]",
+                  font=_DFM, bg=_DPNL, fg=_DACC2,
+                  bd=1, relief="solid", cursor="hand2", pady=7,
+                  activebackground=_DACC2, activeforeground="#000",
+                  command=self._choose_client).pack(pady=(6, 14))
+
+        # Cancel + engine info
+        bot = tk.Frame(inner, bg=_DBG)
+        bot.pack(pady=4)
+        tk.Button(bot, text="Cancel", font=_DFS,
+                  bg=_DBG, fg=_DDIM, bd=0, cursor="hand2",
+                  command=self._cancel).pack(side="left", padx=10)
+        tk.Label(bot,
+                 text=f"Engine will be auto-detected  ·  cefpython3 skipped on Python 3.10+",
+                 font=_DFS, bg=_DBG, fg=_DBDR).pack(side="left")
+
+        # Auto-detect local IP
+        self.root.after(300, self._auto_ip)
+
+    def _auto_ip(self):
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            if ip and not ip.startswith("127."):
+                self._ip_var.set(ip)
+        except Exception:
+            pass
+
+    def _test_conn(self):
+        import urllib.request as _ur
+        ip   = self._ip_var.get().strip()
+        port = self._port_var.get().strip()
+        try:
+            _ur.urlopen(f"http://{ip}:{port}/api/network/detect", timeout=3)
+            self._test_lbl.config(text="✔ Server reachable", fg=_DACC2)
+        except Exception:
+            self._test_lbl.config(text="✗ Not reachable", fg=_DDNG)
+
+    def _choose_server(self):
+        self._result = ("server", "127.0.0.1", 8080)
+        self.root.destroy()
+
+    def _choose_client(self):
+        ip   = self._ip_var.get().strip() or "127.0.0.1"
+        try:
+            port = int(self._port_var.get().strip())
+        except ValueError:
+            port = 8080
+        self._result = ("client", ip, port)
+        self.root.destroy()
+
+    def _cancel(self):
+        self._result = None
+        self.root.destroy()
+
+    def show(self):
+        self.root.deiconify()
+        self.root.mainloop()
+        return self._result
 
 
 class SplashScreen:
+
     def __init__(self, root):
         import tkinter as tk
         self.top = tk.Toplevel(root)
@@ -1518,7 +1807,7 @@ class StatusBar:
 
 class BrowserFrame:
     """Embeds the HTML app or shows fallback."""
-    def __init__(self, parent, html_path: pathlib.Path, engine: str):
+    def __init__(self, parent, html_url: str, engine: str):
         import tkinter as tk
         self.frame = tk.Frame(parent, bg='#0a0e17')
         self.frame.pack(fill='both', expand=True)
@@ -1528,7 +1817,12 @@ class BrowserFrame:
                 from tkinterweb import HtmlFrame
                 hf = HtmlFrame(self.frame, horizontal_scrollbar='auto')
                 hf.pack(fill='both', expand=True)
-                hf.load_file(str(html_path))
+                if html_url.startswith('http://') or html_url.startswith('https://'):
+                    hf.load_website(html_url)
+                elif html_url.startswith('file://'):
+                    hf.load_url(html_url)
+                else:
+                    hf.load_file(html_url)
                 return
             except Exception:
                 pass
@@ -1541,7 +1835,7 @@ class BrowserFrame:
         tk.Button(
             self.frame, text='Open in Browser', font=('Segoe UI', 10, 'bold'),
             bg='#00aaff', fg='#000', relief='flat', padx=20, pady=8,
-            command=lambda: webbrowser.open(html_path.as_uri()),
+            command=lambda: webbrowser.open(html_url),
         ).pack(pady=10)
         tk.Button(
             self.frame, text='Open Backend (http://localhost:8080)',
@@ -1551,7 +1845,7 @@ class BrowserFrame:
 
 
 class TrayManager:
-    def __init__(self, root, on_show, on_quit):
+    def __init__(self, root, on_show, on_quit, on_reconfigure=None):
         self.root = root
         self.icon = None
         try:
@@ -1561,8 +1855,9 @@ class TrayManager:
                 return
 
             menu = pystray.Menu(
-                pystray.MenuItem('Show MCS', lambda: root.after(0, on_show)),
-                pystray.MenuItem('Quit', lambda: root.after(0, on_quit)),
+                pystray.MenuItem('Show MCS',      lambda *_, fn=on_show: root.after(0, fn)),
+                pystray.MenuItem('Reconfigure…',  lambda *_, fn=on_reconfigure or (lambda: None): root.after(0, fn)),
+                pystray.MenuItem('Quit',          lambda *_, fn=on_quit: root.after(0, fn)),
             )
             self.icon = pystray.Icon('MCS CVOR RMS', img, 'MCS CVOR RMS', menu)
             threading.Thread(target=self.icon.run, daemon=True).start()
@@ -1576,12 +1871,22 @@ class TrayManager:
             except Exception:
                 pass
 
+    def notify(self, title: str, message: str):
+        if self.icon and hasattr(self.icon, 'notify'):
+            try:
+                self.icon.notify(message, title=title)
+            except Exception:
+                pass
+
 
 class MCSApp:
-    def __init__(self, html_path: pathlib.Path, no_backend=False):
+    def __init__(self, html_url: str, mode: str = "server", no_backend=False,
+                 api_url="http://127.0.0.1:8080/api", on_reconfigure=None):
         import tkinter as tk
-        self.html_path = html_path
+        self.html_url = html_url
+        self.mode = mode
         self.no_backend = no_backend
+        self._uiq = queue.Queue()
 
         self.root = tk.Tk()
         self.root.title('MCS CVOR RMS')
@@ -1608,12 +1913,18 @@ class MCSApp:
 
         # Browser frame
         engine = detect_engine()
-        BrowserFrame(self.root, html_path, engine)
+        BrowserFrame(self.root, html_url, engine)
 
         # Tray
-        self.tray = TrayManager(self.root, self._on_show, self._on_close)
+        self.tray = TrayManager(
+            self.root,
+            on_show=self._on_show,
+            on_quit=self._on_close,
+            on_reconfigure=on_reconfigure or (lambda: None),
+        )
 
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
+        self.root.after(100, self._drain)
 
     def _on_close(self):
         self.tray.stop()
@@ -1621,6 +1932,7 @@ class MCSApp:
 
     def _on_minimize(self):
         self.banner.show('MCS minimised to tray')
+        self.tray_notify("MCS CVOR RMS", "Application minimised to tray")
         self.root.after(600, self.root.withdraw)
 
     def _on_show(self):
@@ -1630,48 +1942,112 @@ class MCSApp:
     def run(self):
         self.root.mainloop()
 
+    def tray_notify(self, title: str, message: str):
+        if hasattr(self, 'tray'):
+            self.tray.notify(title, message)
+
+    def _drain(self):
+        while True:
+            try:
+                fn = self._uiq.get_nowait()
+                fn()
+            except queue.Empty:
+                break
+        self.root.after(100, self._drain)
+
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='MCS CVOR RMS Launcher')
-    parser.add_argument('--reset', action='store_true', help='Delete and rewrite all generated files')
-    parser.add_argument('--browser-only', action='store_true', dest='browser_only', help='Open HTML in default browser, skip Tkinter')
-    parser.add_argument('--no-backend', action='store_true', dest='no_backend', help='Skip starting Flask backend')
+    import argparse
+
+    parser = argparse.ArgumentParser(description="MCS CVOR RMS Launcher")
+    parser.add_argument("--reset",        action="store_true", help="Rewrite all generated files")
+    parser.add_argument("--reconfigure",  action="store_true", help="Re-show install mode dialog")
+    parser.add_argument("--browser-only", action="store_true", dest="browser_only",
+                        help="Open HTML in default browser, skip Tkinter")
+    parser.add_argument("--no-backend",   action="store_true", dest="no_backend",
+                        help="Skip Flask backend (offline/demo mode)")
     args = parser.parse_args()
 
-    # Need a minimal Tk root for splash
+    # ── Step 0: remove incompatible cefpython3 silently ──────────────────────
+    _remove_incompatible_cef()
+
+    # ── Step 1: load or show config dialog ───────────────────────────────────
+    if args.reconfigure and CONFIG_FILE.exists():
+        CONFIG_FILE.unlink()
+
+    cfg = load_or_create_config()
+
+    if cfg is None:
+        dlg    = InstallModeDialog()
+        result = dlg.show()
+        if result is None:
+            sys.exit(0)
+        mode, ip, port = result
+        cfg = save_config(mode, ip, port)
+
+    mode     = cfg.get("mode", "server")
+    api_url  = cfg.get("api_url", "http://127.0.0.1:8080/api")
+    srv_ip   = cfg.get("server_ip", "127.0.0.1")
+    srv_port = int(cfg.get("server_port", 8080))
+
+    # ── Step 2: install deps ──────────────────────────────────────────────────
     import tkinter as tk
-    root = tk.Tk()
-    root.withdraw()
+    root_pre = tk.Tk()
+    root_pre.withdraw()
+    splash = SplashScreen(root_pre)
 
-    splash = SplashScreen(root)
+    splash.update("Installing dependencies…")
+    install_deps(mode=mode, update_cb=splash.update)
 
-    # 1. Install deps
-    splash.update('Installing dependencies…')
-    install_deps(update_cb=splash.update)
+    # ── Step 3: write files ───────────────────────────────────────────────────
+    splash.update("Writing files…")
+    # In client mode only write HTML; in server mode write everything
+    write_files(reset=args.reset, update_cb=splash.update,
+                server_mode=(mode == "server"))
 
-    # 2. Write files
-    splash.update('Writing files…')
-    write_files(reset=args.reset, update_cb=splash.update)
-
-    # 3. Start backend
-    if not args.no_backend:
-        splash.update('Starting backend…')
+    # ── Step 4: start backend (server mode only) ──────────────────────────────
+    if mode == "server" and not args.no_backend:
+        splash.update("Starting backend…")
         start_backend(update_cb=splash.update)
 
-    html_path = BASE_DIR / 'MCS_CVOR_RMS.html'
+    # ── Step 5: print startup banner ──────────────────────────────────────────
+    engine = detect_engine()
+    print("=" * 54)
+    print("  MCS CVOR Remote Management System  v2.1")
+    print("  South African Air Force  ·  Thales ATM")
+    print(f"  Python  : {sys.version.split()[0]}")
+    print(f"  Engine  : {engine}")
+    print(f"  Mode    : {mode}")
+    print(f"  API URL : {api_url}")
+    print(f"  Log     : {BASE_DIR / 'mcs_desktop.log'}")
+    print("=" * 54)
 
-    # 4. Launch UI
-    splash.update('Launching UI…')
+    html_path = BASE_DIR / "MCS_CVOR_RMS.html"
+    html_url = f"http://{srv_ip}:{srv_port}" if mode == "server" else html_path.as_uri()
+
+    splash.update("Launching UI…")
     splash.close()
-    root.destroy()
 
+    # ── Step 6: browser-only shortcut ────────────────────────────────────────
     if args.browser_only:
-        webbrowser.open(html_path.as_uri())
+        webbrowser.open(html_url)
+        root_pre.destroy()
         return
 
-    app = MCSApp(html_path=html_path, no_backend=args.no_backend)
+    # ── Step 7: build and run Tkinter app ────────────────────────────────────
+    def do_reconfigure():
+        """Called from tray Reconfigure menu item."""
+        if CONFIG_FILE.exists():
+            CONFIG_FILE.unlink()
+        # Restart the launcher (cross-platform safe)
+        subprocess.Popen([sys.executable] + sys.argv)
+        sys.exit(0)
+
+    app = MCSApp(html_url=html_url, mode=mode, no_backend=args.no_backend,
+                 api_url=api_url, on_reconfigure=do_reconfigure)
+    root_pre.destroy()
     app.run()
 
 
